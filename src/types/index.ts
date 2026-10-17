@@ -36,12 +36,14 @@ export interface GalleryItem {
 export interface ReviewItem {
   id: string;
   author: string;
-  rating: number;
+  phone?: string;
+  rating: number; // 1 to 5
   date: string;
-  source: 'Google Reviews' | 'Swiggy Verified' | 'Zomato Diner';
+  source: string; // e.g. 'Verified Order #FLW-8392' | 'Google Reviews' | 'Swiggy Verified'
   comment: string;
   favoriteItem?: string;
   verified: boolean;
+  orderNumber?: string;
 }
 
 export interface StoreInfo {

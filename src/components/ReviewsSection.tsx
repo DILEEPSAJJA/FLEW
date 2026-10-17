@@ -1,8 +1,14 @@
 import React from 'react';
-import { Star, ShieldCheck, MessageSquareQuote } from 'lucide-react';
-import { VERIFIED_REVIEWS } from '../data/flewData';
+import { Star, ShieldCheck, MessageSquareQuote, PenLine } from 'lucide-react';
+import { useStore } from '../context/StoreContext';
 
 export const ReviewsSection: React.FC = () => {
+  const { reviews, openReviewModal } = useStore();
+
+  const avgRating = reviews.length > 0
+    ? (reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length).toFixed(1)
+    : '4.8';
+
   return (
     <section id="reviews" className="py-24 bg-[#0d0d10] border-t border-white/5 relative">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -18,21 +24,29 @@ export const ReviewsSection: React.FC = () => {
             Loved by Night Owls & <span className="text-[#ff3333]">Dessert Purists</span>
           </h2>
 
-          <div className="flex items-center justify-center gap-2 mt-4 text-sm text-white/70">
+          <div className="flex flex-wrap items-center justify-center gap-3 mt-4 text-sm text-white/70">
             <div className="flex items-center text-amber-400">
               {[...Array(5)].map((_, i) => (
                 <Star key={i} className="w-4 h-4 fill-amber-400" />
               ))}
             </div>
-            <span className="font-bold text-white font-mono text-base">4.8 / 5.0</span>
+            <span className="font-bold text-white font-mono text-base">{avgRating} / 5.0</span>
             <span className="text-white/40">•</span>
-            <span>Based on verified Google & Swiggy patrons in Hyderabad</span>
+            <span>Based on {reviews.length} verified ratings in Hyderabad</span>
+
+            <button
+              onClick={() => openReviewModal()}
+              className="ml-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#ff2626]/20 hover:bg-[#ff2626]/30 border border-[#ff2626]/40 text-xs font-bold text-[#ff6666] hover:text-white transition-colors"
+            >
+              <PenLine className="w-3 h-3" />
+              <span>Write a Review</span>
+            </button>
           </div>
         </div>
 
         {/* Reviews Cards Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {VERIFIED_REVIEWS.map((rev) => (
+          {reviews.map((rev) => (
             <div
               key={rev.id}
               className="rounded-3xl bg-[#141418] border border-white/10 p-6 flex flex-col justify-between shadow-xl shadow-black/40 hover:border-[#ff2626]/40 transition-all duration-300"

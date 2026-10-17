@@ -17,7 +17,8 @@ import {
   Calendar,
   Download,
   IndianRupee,
-  BarChart3
+  BarChart3,
+  Star
 } from 'lucide-react';
 import { useStore } from '../../context/StoreContext';
 import { MenuItem, OrderStatus } from '../../types';
@@ -34,10 +35,14 @@ export const AdminDashboard: React.FC = () => {
     deleteItem, 
     updateItem,
     removeDiscount,
-    resetMenuToDefault 
+    resetMenuToDefault,
+    reviews,
+    deleteReview,
+    latestAlert,
+    dismissAlert
   } = useStore();
 
-  const [activeTab, setActiveTab] = useState<'orders' | 'financials' | 'menu' | 'discounts' | 'settings'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'financials' | 'reviews' | 'menu' | 'discounts' | 'settings'>('orders');
   const [financialView, setFinancialView] = useState<'daywise' | 'monthwise'>('daywise');
   const [orderFilter, setOrderFilter] = useState<'all' | 'active' | 'completed'>('active');
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
@@ -291,6 +296,7 @@ export const AdminDashboard: React.FC = () => {
           {[
             { id: 'orders', label: 'Live Orders', icon: ShoppingBag, count: activeOrdersCount },
             { id: 'financials', label: 'Revenue & Financials', icon: IndianRupee },
+            { id: 'reviews', label: 'Customer Reviews', icon: Star, count: reviews.length },
             { id: 'menu', label: 'Menu Inventory', icon: ChefHat, count: menuItems.length },
             { id: 'discounts', label: 'Discounts & Offers', icon: Percent, count: discountedItemsCount },
             { id: 'settings', label: 'Store Operations', icon: Clock },
@@ -325,6 +331,31 @@ export const AdminDashboard: React.FC = () => {
       {/* Main Admin Tab Content */}
       <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
         
+        {/* Real-time Order Arrival Banner */}
+        {latestAlert && (
+          <div className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-[#ff2626]/20 via-amber-500/20 to-[#ff2626]/20 border border-[#ff2626]/40 flex items-center justify-between gap-4 animate-bounce">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-[#ff2626] text-white flex items-center justify-center font-bold text-lg shadow-lg shadow-[#ff2626]/50">
+                🔔
+              </div>
+              <div>
+                <div className="text-sm font-extrabold text-white">
+                  {latestAlert.text}
+                </div>
+                <div className="text-xs text-white/60">
+                  Real-time multi-tab order sync active. Order #{latestAlert.id} received!
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={dismissAlert}
+              className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-bold text-white transition-colors"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
         {/* ============================================================ */}
         {/* TAB 1: LIVE ORDERS */}
         {/* ============================================================ */}
@@ -773,7 +804,156 @@ export const AdminDashboard: React.FC = () => {
         )}
 
         {/* ============================================================ */}
-        {/* TAB 3: MENU INVENTORY */}
+        {/* TAB 3: CUSTOMER REVIEWS & RATINGS */}
+        {/* ============================================================ */}
+        {activeTab === 'reviews' && (
+          <div className="space-y-6">
+            
+            {/* Header Actions */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-extrabold text-white font-display">
+                  Patron Reviews & Star Ratings
+                </h2>
+                <p className="text-xs text-white/60 mt-0.5">
+                  Verified customer reviews submitted after orders received/delivered.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-bold flex items-center gap-1.5">
+                  <Star className="w-4 h-4 fill-amber-400" />
+                  <span>
+                    {reviews.length > 0 ? (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1) : '5.0'} / 5.0 Average
+                  </span>
+                </span>
+                <span className="px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white/70 text-xs font-semibold">
+                  {reviews.length} Total Feedback
+                </span>
+              </div>
+            </div>
+
+            {/* Rating Summary Card */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="p-6 rounded-3xl bg-[#121216] border border-white/10 flex flex-col justify-between">
+                <span className="text-xs font-semibold text-white/50 uppercase tracking-wider">Overall Rating</span>
+                <div className="py-2">
+                  <div className="text-4xl font-extrabold text-white font-mono flex items-center gap-2">
+                    <span>{reviews.length > 0 ? (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1) : '5.0'}</span>
+                    <Star className="w-7 h-7 text-amber-400 fill-amber-400" />
+                  </div>
+                  <div className="flex items-center gap-1 mt-1 text-amber-400">
+                    {[1, 2, 3, 4, 5].map((i) => (
+                      <Star key={i} className="w-3.5 h-3.5 fill-amber-400" />
+                    ))}
+                  </div>
+                </div>
+                <span className="text-[11px] text-white/40">100% verified patron submissions</span>
+              </div>
+
+              {[5, 4, 3].map((stars) => {
+                const count = reviews.filter((r) => Math.round(r.rating) === stars).length;
+                const pct = reviews.length > 0 ? Math.round((count / reviews.length) * 100) : 0;
+                return (
+                  <div key={stars} className="p-4 rounded-3xl bg-[#121216] border border-white/10 flex flex-col justify-between">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-bold text-white flex items-center gap-1">
+                        <span>{stars} Stars</span>
+                        <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                      </span>
+                      <span className="font-mono text-white/60">{count} reviews ({pct}%)</span>
+                    </div>
+                    <div className="w-full bg-white/10 h-2 rounded-full overflow-hidden mt-3">
+                      <div className="bg-amber-400 h-full rounded-full transition-all" style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="text-[10px] text-white/40 mt-2 block">
+                      {stars === 5 ? 'Exceptional dessert lovers' : stars === 4 ? 'Great cravings' : 'Constructive feedback'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Reviews List */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {reviews.map((r) => (
+                <div
+                  key={r.id}
+                  className="p-5 rounded-3xl bg-[#121216] border border-white/10 shadow-lg flex flex-col justify-between space-y-4 hover:border-white/20 transition-all"
+                >
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center text-amber-400">
+                        {[1, 2, 3, 4, 5].map((s) => (
+                          <Star
+                            key={s}
+                            className={`w-3.5 h-3.5 ${
+                              s <= Math.floor(r.rating)
+                                ? 'fill-amber-400 text-amber-400'
+                                : 'text-white/20'
+                            }`}
+                          />
+                        ))}
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <span className="px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-[10px] text-white/60">
+                          {r.source}
+                        </span>
+                        <button
+                          onClick={() => {
+                            if (window.confirm(`Delete review from ${r.author}?`)) {
+                              deleteReview(r.id);
+                            }
+                          }}
+                          className="w-6 h-6 rounded-full bg-white/5 hover:bg-rose-500/20 text-white/40 hover:text-rose-400 flex items-center justify-center transition-colors"
+                          title="Delete review"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-white/80 leading-relaxed italic">
+                      "{r.comment}"
+                    </p>
+                  </div>
+
+                  <div className="pt-3 border-t border-white/5 space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="font-bold text-white truncate">
+                        {r.author}
+                      </div>
+                      <span className="text-[10px] text-white/40">
+                        {r.date}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px]">
+                      {r.favoriteItem ? (
+                        <span className="text-[#ff6666] font-medium truncate max-w-[200px]">
+                          Craved: {r.favoriteItem}
+                        </span>
+                      ) : (
+                        <span className="text-white/40">General Cravings</span>
+                      )}
+
+                      {r.orderNumber && (
+                        <span className="font-mono text-[10px] text-emerald-400 bg-emerald-950/60 border border-emerald-500/30 px-1.5 py-0.5 rounded">
+                          #{r.orderNumber}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+          </div>
+        )}
+
+        {/* ============================================================ */}
+        {/* TAB 4: MENU INVENTORY */}
         {/* ============================================================ */}
         {activeTab === 'menu' && (
           <div className="space-y-6">

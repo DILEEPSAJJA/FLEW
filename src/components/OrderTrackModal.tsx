@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Search, CheckCircle2, Clock, ChefHat, Package, Check, MessageCircle } from 'lucide-react';
+import { X, Search, CheckCircle2, Clock, ChefHat, Package, Check, MessageCircle, Star } from 'lucide-react';
 import { useStore } from '../context/StoreContext';
 import { OrderStatus } from '../types';
 import { STORE_INFO } from '../data/flewData';
@@ -10,7 +10,7 @@ interface OrderTrackModalProps {
 }
 
 export const OrderTrackModal: React.FC<OrderTrackModalProps> = ({ isOpen, onClose }) => {
-  const { orders, activeOrder, setActiveOrder } = useStore();
+  const { orders, activeOrder, setActiveOrder, reviews, openReviewModal } = useStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -210,6 +210,37 @@ export const OrderTrackModal: React.FC<OrderTrackModalProps> = ({ isOpen, onClos
                 <span className="text-lg font-mono text-[#ff3333]">₹{currentOrder.finalTotal}</span>
               </div>
             </div>
+
+            {/* Rate & Review Completed/Delivered Order */}
+            {currentOrder.status === 'completed' && (
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/10 via-[#ff2626]/10 to-emerald-500/10 border border-amber-500/30">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-1.5 text-amber-400 text-xs font-bold">
+                      <Star className="w-4 h-4 fill-amber-400" />
+                      <span>Order Delivered! How was your dessert?</span>
+                    </div>
+                    <p className="text-[11px] text-white/70 mt-0.5">
+                      Rate your thickshake and share your experience with other patrons.
+                    </p>
+                  </div>
+
+                  {reviews.some((r) => r.orderNumber === currentOrder.orderNumber) ? (
+                    <span className="self-start sm:self-auto shrink-0 px-3 py-1.5 rounded-xl bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 text-xs font-bold">
+                      ✓ Review Submitted 🐾
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => openReviewModal(currentOrder)}
+                      className="self-start sm:self-auto shrink-0 px-4 py-2 bg-gradient-to-r from-[#ff2626] to-[#dc2626] hover:opacity-95 text-white text-xs font-bold rounded-xl shadow-md transition-all active:scale-95 flex items-center gap-1.5"
+                    >
+                      <Star className="w-3.5 h-3.5 fill-white" />
+                      <span>Rate & Add Review</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Store Contact Help */}
             <div className="p-3.5 rounded-2xl bg-white/[0.02] border border-white/5 flex items-center justify-between text-xs text-white/60">

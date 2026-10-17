@@ -1,6 +1,12 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { MenuItem, Order, OrderStatus, UserAuth } from '../types';
-import { MENU_ITEMS as INITIAL_MENU_ITEMS } from '../data/flewData';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { MenuItem, Order, OrderStatus, UserAuth, ReviewItem } from '../types';
+import { MENU_ITEMS as INITIAL_MENU_ITEMS, VERIFIED_REVIEWS as INITIAL_REVIEWS } from '../data/flewData';
+
+export interface AlertNotification {
+  id: string;
+  text: string;
+  time: string;
+}
 
 interface StoreContextType {
   currentRoute: 'customer' | 'admin';
@@ -27,6 +33,27 @@ interface StoreContextType {
   updateOrderStatus: (orderNumber: string, status: OrderStatus) => void;
   activeOrder: Order | null;
   setActiveOrder: (order: Order | null) => void;
+
+  // Reviews management (Customer rating with stars & comment)
+  reviews: ReviewItem[];
+  addReview: (reviewData: {
+    author: string;
+    phone?: string;
+    rating: number;
+    comment?: string;
+    favoriteItem?: string;
+    orderNumber?: string;
+  }) => ReviewItem;
+  deleteReview: (id: string) => void;
+  isReviewModalOpen: boolean;
+  setIsReviewModalOpen: (open: boolean) => void;
+  reviewTargetOrder: Order | null;
+  setReviewTargetOrder: (order: Order | null) => void;
+  openReviewModal: (order?: Order) => void;
+
+  // Real-time notifications / Audio Alerts
+  latestAlert: AlertNotification | null;
+  dismissAlert: () => void;
 
   // User Auth & Phone Verification
   currentUser: UserAuth | null;
@@ -277,11 +304,35 @@ const SAMPLE_INITIAL_ORDERS: Order[] = [
   }
 ];
 
+function playNotificationChime() {
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(523.25, ctx.currentTime); // C5
+    osc.frequency.setValueAtTime(659.25, ctx.currentTime + 0.12); // E5
+    osc.frequency.setValueAtTime(783.99, ctx.currentTime + 0.24); // G5
+    gain.gain.setValueAtTime(0.12, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.45);
+  } catch {
+    // Autoplay policy or unsupported audio
+  }
+}
+
 export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Navigation: check hash #admin or path /admin
   const [currentRoute, setCurrentRoute] = useState<'customer' | 'admin'>(() => {
     if (typeof window !== 'undefined') {
-      if (window.location.pathname.startsWith('/admin') || window.location.hash === '#admin') {
+      const isPathAdmin = window.location.pathname === '/admin' || window.location.pathname.startsWith('/admin/');
+      const isHashAdmin = window.location.hash === '#admin' || window.location.hash.startsWith('#admin');
+      if (isPathAdmin || isHashAdmin) {
         return 'admin';
       }
     }
@@ -304,15 +355,102 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   useEffect(() => {
-    const handleHashChange = () => {
-      if (window.location.hash === '#admin' || window.location.pathname.startsWith('/admin')) {
+    const handleRouteChange = () => {
+      const isPathAdmin = window.location.pathname === '/admin' || window.location.pathname.startsWith('/admin/');
+      const isHashAdmin = window.location.hash === '#admin' || window.location.hash.startsWith('#admin');
+      if (isPathAdmin || isHashAdmin) {
         setCurrentRoute('admin');
       } else {
         setCurrentRoute('customer');
       }
     };
-    window.addEventListener('hashchange', handleHashChange);
-    return () => window.removeEventListener('hashchange', handleHashChange);
+    window.addEventListener('hashchange', handleRouteChange);
+    window.addEventListener('popstate', handleRouteChange);
+    return () => {
+      window.removeEventListener('hashchange', handleRouteChange);
+      window.removeEventListener('popstate', handleRouteChange);
+    };
+  }, []);
+
+  // Broadcast Channel for live multi-tab & multi-window instant synchronization
+  const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      const channel = new BroadcastChannel('flew_store_channel');
+      broadcastChannelRef.current = channel;
+
+      channel.onmessage = (event) => {
+        const data = event.data;
+        if (!data || !data.type) return;
+
+        if (data.type === 'NEW_ORDER' && data.order) {
+          setOrders((prev) => {
+            if (prev.some((o) => o.orderNumber === data.order.orderNumber)) return prev;
+            return [data.order, ...prev];
+          });
+          playNotificationChime();
+          setLatestAlert({
+            id: data.order.orderNumber,
+            text: `🔔 New Order Received: #${data.order.orderNumber} (₹${data.order.finalTotal})`,
+            time: 'Just now',
+          });
+        } else if (data.type === 'STATUS_UPDATED') {
+          setOrders((prev) =>
+            prev.map((o) => (o.orderNumber === data.orderNumber ? { ...o, status: data.status } : o))
+          );
+          setActiveOrder((prev) =>
+            prev && prev.orderNumber === data.orderNumber ? { ...prev, status: data.status } : prev
+          );
+        } else if (data.type === 'NEW_REVIEW' && data.review) {
+          setReviews((prev) => {
+            if (prev.some((r) => r.id === data.review.id)) return prev;
+            return [data.review, ...prev];
+          });
+        } else if (data.type === 'DELETE_REVIEW' && data.reviewId) {
+          setReviews((prev) => prev.filter((r) => r.id !== data.reviewId));
+        } else if (data.type === 'MENU_UPDATED' && data.menu) {
+          setMenuItems(data.menu);
+        }
+      };
+
+      return () => {
+        channel.close();
+      };
+    }
+  }, []);
+
+  const broadcastMessage = (msg: any) => {
+    if (broadcastChannelRef.current) {
+      try {
+        broadcastChannelRef.current.postMessage(msg);
+      } catch (err) {
+        console.warn('Broadcast failed', err);
+      }
+    }
+  };
+
+  // Cross-tab fallback via window storage event
+  useEffect(() => {
+    const handleStorageEvent = (e: StorageEvent) => {
+      if (!e.newValue) return;
+      try {
+        if (e.key === 'flew_store_orders') {
+          const parsed = JSON.parse(e.newValue);
+          setOrders(parsed);
+        } else if (e.key === 'flew_customer_reviews') {
+          const parsed = JSON.parse(e.newValue);
+          setReviews(parsed);
+        } else if (e.key === 'flew_custom_menu') {
+          const parsed = JSON.parse(e.newValue);
+          setMenuItems(parsed);
+        }
+      } catch (err) {
+        console.error('Storage sync error', err);
+      }
+    };
+    window.addEventListener('storage', handleStorageEvent);
+    return () => window.removeEventListener('storage', handleStorageEvent);
   }, []);
 
   // Menu items state with local storage persistence
@@ -358,6 +496,42 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return orders[0] || null;
   });
 
+  // Reviews state (initial from data, persisted in localStorage)
+  const [reviews, setReviews] = useState<ReviewItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('flew_customer_reviews');
+      if (saved) return JSON.parse(saved);
+    } catch {
+      // fallback
+    }
+    return INITIAL_REVIEWS;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('flew_customer_reviews', JSON.stringify(reviews));
+    } catch (e) {
+      console.error('Failed to save reviews', e);
+    }
+  }, [reviews]);
+
+  // Review modal state
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+  const [reviewTargetOrder, setReviewTargetOrder] = useState<Order | null>(null);
+
+  const openReviewModal = (order?: Order) => {
+    if (order) {
+      setReviewTargetOrder(order);
+    } else {
+      setReviewTargetOrder(null);
+    }
+    setIsReviewModalOpen(true);
+  };
+
+  // Live incoming order alert notification
+  const [latestAlert, setLatestAlert] = useState<AlertNotification | null>(null);
+  const dismissAlert = () => setLatestAlert(null);
+
   // User auth state
   const [currentUser, setCurrentUser] = useState<UserAuth | null>(() => {
     try {
@@ -393,23 +567,33 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       createdAt: new Date().toISOString(),
       isAvailable: true,
     };
-    setMenuItems((prev) => [newItem, ...prev]);
+    setMenuItems((prev) => {
+      const updated = [newItem, ...prev];
+      broadcastMessage({ type: 'MENU_UPDATED', menu: updated });
+      return updated;
+    });
     return newItem;
   };
 
   const updateItem = (id: string, updates: Partial<MenuItem>) => {
-    setMenuItems((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, ...updates } : item))
-    );
+    setMenuItems((prev) => {
+      const updated = prev.map((item) => (item.id === id ? { ...item, ...updates } : item));
+      broadcastMessage({ type: 'MENU_UPDATED', menu: updated });
+      return updated;
+    });
   };
 
   const deleteItem = (id: string) => {
-    setMenuItems((prev) => prev.filter((item) => item.id !== id));
+    setMenuItems((prev) => {
+      const updated = prev.filter((item) => item.id !== id);
+      broadcastMessage({ type: 'MENU_UPDATED', menu: updated });
+      return updated;
+    });
   };
 
   const applyDiscount = (itemIds: string[], percent: number, label: string) => {
-    setMenuItems((prev) =>
-      prev.map((item) => {
+    setMenuItems((prev) => {
+      const updated = prev.map((item) => {
         if (itemIds.includes(item.id)) {
           const original = item.originalPrice || item.price;
           const discountedPrice = Math.max(1, Math.round(original * (1 - percent / 100)));
@@ -422,13 +606,15 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           };
         }
         return item;
-      })
-    );
+      });
+      broadcastMessage({ type: 'MENU_UPDATED', menu: updated });
+      return updated;
+    });
   };
 
   const removeDiscount = (itemId: string) => {
-    setMenuItems((prev) =>
-      prev.map((item) => {
+    setMenuItems((prev) => {
+      const updated = prev.map((item) => {
         if (item.id === itemId && item.originalPrice) {
           return {
             ...item,
@@ -439,12 +625,15 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           };
         }
         return item;
-      })
-    );
+      });
+      broadcastMessage({ type: 'MENU_UPDATED', menu: updated });
+      return updated;
+    });
   };
 
   const resetMenuToDefault = () => {
     setMenuItems(INITIAL_MENU_ITEMS);
+    broadcastMessage({ type: 'MENU_UPDATED', menu: INITIAL_MENU_ITEMS });
   };
 
   // --- Order Actions ---
@@ -485,6 +674,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     setOrders((prev) => [newOrder, ...prev]);
     setActiveOrder(newOrder);
+    broadcastMessage({ type: 'NEW_ORDER', order: newOrder });
     return newOrder;
   };
 
@@ -501,6 +691,39 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return order;
       })
     );
+    broadcastMessage({ type: 'STATUS_UPDATED', orderNumber, status });
+  };
+
+  // --- Review Actions ---
+  const addReview = (reviewData: {
+    author: string;
+    phone?: string;
+    rating: number;
+    comment?: string;
+    favoriteItem?: string;
+    orderNumber?: string;
+  }): ReviewItem => {
+    const newRev: ReviewItem = {
+      id: `rev-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+      author: reviewData.author.trim() || 'Flew Patron',
+      phone: reviewData.phone,
+      rating: reviewData.rating,
+      date: 'Just now',
+      source: reviewData.orderNumber ? `Verified Order #${reviewData.orderNumber}` : 'Verified Customer',
+      comment: reviewData.comment?.trim() || 'Loved the thick desserts and late-night cravings! 🐾',
+      favoriteItem: reviewData.favoriteItem,
+      verified: true,
+      orderNumber: reviewData.orderNumber,
+    };
+
+    setReviews((prev) => [newRev, ...prev]);
+    broadcastMessage({ type: 'NEW_REVIEW', review: newRev });
+    return newRev;
+  };
+
+  const deleteReview = (id: string) => {
+    setReviews((prev) => prev.filter((r) => r.id !== id));
+    broadcastMessage({ type: 'DELETE_REVIEW', reviewId: id });
   };
 
   // --- Auth Actions ---
@@ -542,6 +765,16 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         updateOrderStatus,
         activeOrder,
         setActiveOrder,
+        reviews,
+        addReview,
+        deleteReview,
+        isReviewModalOpen,
+        setIsReviewModalOpen,
+        reviewTargetOrder,
+        setReviewTargetOrder,
+        openReviewModal,
+        latestAlert,
+        dismissAlert,
         currentUser,
         verifyUserWithPhone,
         logoutUser,

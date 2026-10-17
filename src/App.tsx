@@ -17,6 +17,7 @@ import { PhoneAuthModal } from './components/PhoneAuthModal';
 import { OrderTrackModal } from './components/OrderTrackModal';
 import { CatAssistant } from './components/CatAssistant';
 import { WelcomeAuthGate } from './components/WelcomeAuthGate';
+import { WriteReviewModal } from './components/WriteReviewModal';
 import { AdminDashboard } from './components/admin/AdminDashboard';
 
 function StorefrontApp() {
@@ -180,6 +181,9 @@ function StorefrontApp() {
         isOpen={isOrderTrackModalOpen}
         onClose={() => setIsOrderTrackModalOpen(false)}
       />
+
+      {/* Customer Review & Rating Modal */}
+      <WriteReviewModal />
 
       {/* Interactive Cat Assistant Easter Egg */}
       <CatAssistant />

@@ -1,9 +1,11 @@
 import React from 'react';
-import { MapPin, ExternalLink, Heart } from 'lucide-react';
+import { MapPin, ExternalLink, Heart, Lock } from 'lucide-react';
 import { InstagramIcon } from './icons/InstagramIcon';
 import { STORE_INFO } from '../data/flewData';
+import { useStore } from '../context/StoreContext';
 
 export const Footer: React.FC = () => {
+  const { navigateTo } = useStore();
   return (
     <footer className="bg-[#070709] border-t border-white/10 text-white/70 pt-16 pb-12">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -113,7 +115,17 @@ export const Footer: React.FC = () => {
 
         {/* Bottom Bar */}
         <div className="pt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-white/40">
-          <p>© {new Date().getFullYear()} FLEW Gowlidoddy, Hyderabad. All rights reserved.</p>
+          <div className="flex items-center gap-3">
+            <p>© {new Date().getFullYear()} FLEW Gowlidoddy, Hyderabad. All rights reserved.</p>
+            <button
+              onClick={() => navigateTo('admin')}
+              className="inline-flex items-center gap-1 text-[10px] text-white/20 hover:text-white/60 transition-colors"
+              title="Staff Portal (PIN 1234)"
+            >
+              <Lock className="w-2.5 h-2.5" />
+              <span>Staff</span>
+            </button>
+          </div>
           <p className="flex items-center gap-1 text-[11px]">
             <span>Crafted with</span>
             <Heart className="w-3 h-3 text-[#ff2626] fill-[#ff2626]" />
