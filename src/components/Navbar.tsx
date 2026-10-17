@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingBag, MapPin, Menu, X, Clock, ExternalLink, ShieldCheck, Compass, Settings } from 'lucide-react';
+import { ShoppingBag, MapPin, Menu, X, Clock, ExternalLink, ShieldCheck, Compass } from 'lucide-react';
 import { InstagramIcon } from './icons/InstagramIcon';
 import { STORE_INFO } from '../data/flewData';
 import { getStoreStatus } from '../utils/storeStatus';
@@ -17,7 +17,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenOrderModal
 }) => {
   const { 
-    navigateTo, 
     currentUser, 
     setIsAuthModalOpen, 
     setIsOrderTrackModalOpen 
@@ -148,16 +147,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </button>
               )}
 
-              {/* Admin Portal Toggle Pill */}
-              <button
-                onClick={() => navigateTo('admin')}
-                className="flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-xl bg-[#ff2626]/10 hover:bg-[#ff2626]/20 border border-[#ff2626]/40 text-[#ff4444] text-xs font-bold transition-all"
-                title="Switch to Store Admin Portal"
-              >
-                <Settings className="w-3.5 h-3.5" />
-                <span className="hidden xs:inline">Admin</span>
-              </button>
-
               {/* Cart Button */}
               <button
                 onClick={onOpenCart}
@@ -266,18 +255,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           <div className="space-y-3 pt-4 border-t border-white/10">
-            {/* Switch to Admin Portal in Mobile Drawer */}
-            <button
-              onClick={() => {
-                setMobileMenuOpen(false);
-                navigateTo('admin');
-              }}
-              className="w-full py-3 px-4 bg-[#ff2626]/20 border border-[#ff2626]/50 text-[#ff4444] font-bold rounded-xl flex items-center justify-center gap-2 text-sm"
-            >
-              <Settings className="w-4 h-4" />
-              <span>Open Store Admin Portal</span>
-            </button>
-
             <a
               href={STORE_INFO.social.swiggyUrl}
               target="_blank"

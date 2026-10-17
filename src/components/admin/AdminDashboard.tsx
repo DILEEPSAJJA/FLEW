@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   ShoppingBag, 
   Plus, 
@@ -9,10 +9,15 @@ import {
   Eye, 
   Edit3, 
   Trash2, 
-  RotateCcw,
-  Phone,
-  Tag,
-  AlertCircle
+  RotateCcw, 
+  Phone, 
+  Tag, 
+  AlertCircle,
+  TrendingUp,
+  Calendar,
+  Download,
+  IndianRupee,
+  BarChart3
 } from 'lucide-react';
 import { useStore } from '../../context/StoreContext';
 import { MenuItem, OrderStatus } from '../../types';
@@ -32,7 +37,8 @@ export const AdminDashboard: React.FC = () => {
     resetMenuToDefault 
   } = useStore();
 
-  const [activeTab, setActiveTab] = useState<'orders' | 'menu' | 'discounts' | 'settings'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'financials' | 'menu' | 'discounts' | 'settings'>('orders');
+  const [financialView, setFinancialView] = useState<'daywise' | 'monthwise'>('daywise');
   const [orderFilter, setOrderFilter] = useState<'all' | 'active' | 'completed'>('active');
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
   
@@ -42,13 +48,129 @@ export const AdminDashboard: React.FC = () => {
   const [isDiscountModalOpen, setIsDiscountModalOpen] = useState(false);
   const [menuSearchQuery, setMenuSearchQuery] = useState('');
 
-  // Analytics Metrics
-  const totalRevenue = orders
-    .filter((o) => o.status !== 'cancelled')
-    .reduce((sum, o) => sum + o.finalTotal, 0);
+  // -------------------------------------------------------------
+  // FINANCIAL ANALYTICS (Day-wise & Monthly-wise)
+  // -------------------------------------------------------------
+  const validOrders = useMemo(() => {
+    return orders.filter((o) => o.status !== 'cancelled');
+  }, [orders]);
+
+  const totalRevenue = useMemo(() => {
+    return validOrders.reduce((sum, o) => sum + o.finalTotal, 0);
+  }, [validOrders]);
 
   const activeOrdersCount = orders.filter((o) => ['placed', 'preparing', 'ready'].includes(o.status)).length;
   const discountedItemsCount = menuItems.filter((i) => i.discountPercent && i.discountPercent > 0).length;
+
+  const todayDateString = new Date().toISOString().split('T')[0];
+  const currentMonthString = new Date().toISOString().slice(0, 7);
+
+  // Today's total
+  const todayRevenue = useMemo(() => {
+    return validOrders
+      .filter((o) => o.createdAt.startsWith(todayDateString))
+      .reduce((sum, o) => sum + o.finalTotal, 0);
+  }, [validOrders, todayDateString]);
+
+  // Current month's total
+  const thisMonthRevenue = useMemo(() => {
+    return validOrders
+      .filter((o) => o.createdAt.startsWith(currentMonthString))
+      .reduce((sum, o) => sum + o.finalTotal, 0);
+  }, [validOrders, currentMonthString]);
+
+  // Day-wise grouping
+  const dayWiseData = useMemo(() => {
+    const groups: { [key: string]: { dateStr: string; ordersCount: number; revenue: number; orders: typeof orders } } = {};
+
+    validOrders.forEach((o) => {
+      const d = o.createdAt.split('T')[0];
+      if (!groups[d]) {
+        groups[d] = { dateStr: d, ordersCount: 0, revenue: 0, orders: [] };
+      }
+      groups[d].ordersCount += 1;
+      groups[d].revenue += o.finalTotal;
+      groups[d].orders.push(o);
+    });
+
+    return Object.values(groups)
+      .sort((a, b) => b.dateStr.localeCompare(a.dateStr))
+      .map((entry) => {
+        const dObj = new Date(entry.dateStr);
+        const formatted = dObj.toLocaleDateString('en-IN', {
+          weekday: 'short',
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric'
+        });
+        const isToday = entry.dateStr === todayDateString;
+        const avg = Math.round(entry.revenue / entry.ordersCount);
+
+        return {
+          ...entry,
+          formattedDate: formatted,
+          isToday,
+          avgTicket: avg,
+        };
+      });
+  }, [validOrders, todayDateString]);
+
+  // Month-wise grouping
+  const monthWiseData = useMemo(() => {
+    const groups: { [key: string]: { monthStr: string; ordersCount: number; revenue: number } } = {};
+
+    validOrders.forEach((o) => {
+      const m = o.createdAt.slice(0, 7); // YYYY-MM
+      if (!groups[m]) {
+        groups[m] = { monthStr: m, ordersCount: 0, revenue: 0 };
+      }
+      groups[m].ordersCount += 1;
+      groups[m].revenue += o.finalTotal;
+    });
+
+    return Object.values(groups)
+      .sort((a, b) => b.monthStr.localeCompare(a.monthStr))
+      .map((entry) => {
+        const [year, month] = entry.monthStr.split('-');
+        const dateObj = new Date(parseInt(year), parseInt(month) - 1, 1);
+        const formattedMonth = dateObj.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+        const avg = Math.round(entry.revenue / entry.ordersCount);
+        const isCurrentMonth = entry.monthStr === currentMonthString;
+
+        return {
+          ...entry,
+          formattedMonth,
+          isCurrentMonth,
+          avgTicket: avg,
+        };
+      });
+  }, [validOrders, currentMonthString]);
+
+  // Export CSV
+  const handleExportCSV = () => {
+    let csv = 'Type,Period,Orders Count,Total Amount (INR),Avg Ticket (INR)\n';
+    
+    // Add Day-wise
+    csv += '--- DAY-WISE REVENUE BREAKDOWN ---\n';
+    dayWiseData.forEach((d) => {
+      csv += `Day,"${d.formattedDate}",${d.ordersCount},${d.revenue},${d.avgTicket}\n`;
+    });
+
+    // Add Month-wise
+    csv += '--- MONTH-WISE REVENUE BREAKDOWN ---\n';
+    monthWiseData.forEach((m) => {
+      csv += `Month,"${m.formattedMonth}",${m.ordersCount},${m.revenue},${m.avgTicket}\n`;
+    });
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `FLEW_Revenue_Report_${todayDateString}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   // Filtered orders
   const filteredOrders = orders.filter((o) => {
@@ -133,21 +255,21 @@ export const AdminDashboard: React.FC = () => {
             </div>
           </div>
 
-          {/* Quick Metrics Bar */}
-          <div className="hidden md:flex items-center gap-4 text-xs">
-            <div className="px-3.5 py-1.5 rounded-xl bg-white/5 border border-white/10">
+          {/* Quick Metrics Bar in Header */}
+          <div className="hidden lg:flex items-center gap-3 text-xs">
+            <div className="px-3 py-1.5 rounded-xl bg-white/5 border border-white/10">
+              <span className="text-white/40 block text-[10px] uppercase font-semibold">Today's Revenue</span>
+              <span className="text-emerald-400 font-mono font-bold text-sm">₹{todayRevenue}</span>
+            </div>
+
+            <div className="px-3 py-1.5 rounded-xl bg-white/5 border border-white/10">
+              <span className="text-white/40 block text-[10px] uppercase font-semibold">This Month</span>
+              <span className="text-amber-400 font-mono font-bold text-sm">₹{thisMonthRevenue}</span>
+            </div>
+
+            <div className="px-3 py-1.5 rounded-xl bg-white/5 border border-white/10">
               <span className="text-white/40 block text-[10px] uppercase font-semibold">Active Orders</span>
-              <span className="text-[#ff4444] font-mono font-bold text-sm">{activeOrdersCount} in progress</span>
-            </div>
-
-            <div className="px-3.5 py-1.5 rounded-xl bg-white/5 border border-white/10">
-              <span className="text-white/40 block text-[10px] uppercase font-semibold">Sales Today</span>
-              <span className="text-emerald-400 font-mono font-bold text-sm">₹{totalRevenue}</span>
-            </div>
-
-            <div className="px-3.5 py-1.5 rounded-xl bg-white/5 border border-white/10">
-              <span className="text-white/40 block text-[10px] uppercase font-semibold">Live Discounts</span>
-              <span className="text-amber-400 font-mono font-bold text-sm">{discountedItemsCount} items</span>
+              <span className="text-[#ff4444] font-mono font-bold text-sm">{activeOrdersCount} live</span>
             </div>
           </div>
 
@@ -168,6 +290,7 @@ export const AdminDashboard: React.FC = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center gap-2 overflow-x-auto pt-1 no-scrollbar border-t border-white/5">
           {[
             { id: 'orders', label: 'Live Orders', icon: ShoppingBag, count: activeOrdersCount },
+            { id: 'financials', label: 'Revenue & Financials', icon: IndianRupee },
             { id: 'menu', label: 'Menu Inventory', icon: ChefHat, count: menuItems.length },
             { id: 'discounts', label: 'Discounts & Offers', icon: Percent, count: discountedItemsCount },
             { id: 'settings', label: 'Store Operations', icon: Clock },
@@ -351,7 +474,306 @@ export const AdminDashboard: React.FC = () => {
         )}
 
         {/* ============================================================ */}
-        {/* TAB 2: MENU INVENTORY */}
+        {/* TAB 2: REVENUE & FINANCIALS (DAY-WISE & MONTH-WISE) */}
+        {/* ============================================================ */}
+        {activeTab === 'financials' && (
+          <div className="space-y-8">
+            
+            {/* Header with Export */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 text-xs font-bold mb-2">
+                  <TrendingUp className="w-3.5 h-3.5" />
+                  <span>Verified Sales & Earnings</span>
+                </div>
+                <h2 className="text-2xl sm:text-3xl font-extrabold text-white font-display">
+                  Financial Revenue Tracker
+                </h2>
+                <p className="text-xs text-white/60 mt-0.5">
+                  Track day-wise and monthly revenue received from thickshake and dessert orders.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                {/* View Switcher: Day-Wise vs Monthly-Wise */}
+                <div className="flex rounded-2xl bg-[#121216] p-1 border border-white/10 text-xs">
+                  <button
+                    onClick={() => setFinancialView('daywise')}
+                    className={`px-4 py-2 rounded-xl font-bold transition-all flex items-center gap-1.5 ${
+                      financialView === 'daywise'
+                        ? 'bg-[#ff2626] text-white shadow-md shadow-[#ff2626]/30'
+                        : 'text-white/60 hover:text-white'
+                    }`}
+                  >
+                    <Calendar className="w-3.5 h-3.5" />
+                    <span>Day-Wise</span>
+                  </button>
+
+                  <button
+                    onClick={() => setFinancialView('monthwise')}
+                    className={`px-4 py-2 rounded-xl font-bold transition-all flex items-center gap-1.5 ${
+                      financialView === 'monthwise'
+                        ? 'bg-[#ff2626] text-white shadow-md shadow-[#ff2626]/30'
+                        : 'text-white/60 hover:text-white'
+                    }`}
+                  >
+                    <BarChart3 className="w-3.5 h-3.5" />
+                    <span>Monthly-Wise</span>
+                  </button>
+                </div>
+
+                {/* Export CSV */}
+                <button
+                  onClick={handleExportCSV}
+                  className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white font-semibold text-xs border border-white/15 flex items-center gap-1.5 transition-colors"
+                  title="Export Day & Month revenue to CSV"
+                >
+                  <Download className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="hidden sm:inline">Export CSV</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Financial KPI Summary Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              
+              {/* Today's Revenue */}
+              <div className="p-5 rounded-3xl bg-gradient-to-br from-[#1c1212] via-[#141418] to-[#121216] border border-[#ff2626]/40 shadow-xl">
+                <span className="text-[11px] font-bold text-[#ff4444] uppercase tracking-wider block">
+                  Today's Earnings (Day-Wise)
+                </span>
+                <div className="text-3xl font-extrabold text-white font-mono mt-1">
+                  ₹{todayRevenue}
+                </div>
+                <div className="text-xs text-white/50 mt-1 flex items-center gap-1">
+                  <span className="text-emerald-400 font-semibold">● Active Day</span>
+                  <span>• {dayWiseData.find(d => d.isToday)?.ordersCount || 0} orders</span>
+                </div>
+              </div>
+
+              {/* This Month's Revenue */}
+              <div className="p-5 rounded-3xl bg-[#121216] border border-white/10 shadow-xl">
+                <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider block">
+                  This Month (October 2026)
+                </span>
+                <div className="text-3xl font-extrabold text-white font-mono mt-1">
+                  ₹{thisMonthRevenue}
+                </div>
+                <div className="text-xs text-white/50 mt-1">
+                  Month-to-date collected
+                </div>
+              </div>
+
+              {/* All-Time Gross Revenue */}
+              <div className="p-5 rounded-3xl bg-[#121216] border border-white/10 shadow-xl">
+                <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider block">
+                  All-Time Revenue
+                </span>
+                <div className="text-3xl font-extrabold text-white font-mono mt-1">
+                  ₹{totalRevenue}
+                </div>
+                <div className="text-xs text-white/50 mt-1">
+                  Across {validOrders.length} total orders
+                </div>
+              </div>
+
+              {/* Average Order Value (AOV) */}
+              <div className="p-5 rounded-3xl bg-[#121216] border border-white/10 shadow-xl">
+                <span className="text-[11px] font-bold text-blue-400 uppercase tracking-wider block">
+                  Avg Order Value (AOV)
+                </span>
+                <div className="text-3xl font-extrabold text-white font-mono mt-1">
+                  ₹{validOrders.length > 0 ? Math.round(totalRevenue / validOrders.length) : 0}
+                </div>
+                <div className="text-xs text-white/50 mt-1">
+                  Average spend per customer
+                </div>
+              </div>
+
+            </div>
+
+            {/* VIEW A: DAY-WISE TRACKING */}
+            {financialView === 'daywise' && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-bold text-white font-display flex items-center gap-2">
+                    <Calendar className="w-4 h-4 text-[#ff2626]" />
+                    <span>Day-Wise Amount Received</span>
+                  </h3>
+                  <span className="text-xs text-white/50">
+                    Showing past {dayWiseData.length} operating days
+                  </span>
+                </div>
+
+                <div className="rounded-3xl bg-[#121216] border border-white/10 overflow-hidden shadow-xl">
+                  <table className="w-full text-left text-xs text-white/70">
+                    <thead className="bg-white/5 text-white/50 uppercase text-[10px] tracking-wider border-b border-white/10">
+                      <tr>
+                        <th className="py-3.5 px-5">Date</th>
+                        <th className="py-3.5 px-4">Orders Count</th>
+                        <th className="py-3.5 px-4">Amount Received</th>
+                        <th className="py-3.5 px-4">Avg Ticket</th>
+                        <th className="py-3.5 px-5">Daily Share</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                      {dayWiseData.map((day) => {
+                        const percentOfTotal = totalRevenue > 0 ? Math.round((day.revenue / totalRevenue) * 100) : 0;
+
+                        return (
+                          <tr key={day.dateStr} className={`hover:bg-white/[0.02] transition-colors ${day.isToday ? 'bg-[#ff2626]/5' : ''}`}>
+                            
+                            {/* Date */}
+                            <td className="py-3.5 px-5 font-medium">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-white text-sm">
+                                  {day.formattedDate}
+                                </span>
+                                {day.isToday && (
+                                  <span className="px-2 py-0.5 rounded-full bg-[#ff2626] text-[10px] font-black text-white uppercase">
+                                    Today
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Orders Count */}
+                            <td className="py-3.5 px-4 font-mono font-semibold text-white">
+                              {day.ordersCount} orders
+                            </td>
+
+                            {/* Revenue in ₹ */}
+                            <td className="py-3.5 px-4 font-mono font-extrabold text-base text-emerald-400">
+                              ₹{day.revenue}
+                            </td>
+
+                            {/* Avg ticket */}
+                            <td className="py-3.5 px-4 font-mono text-white/80">
+                              ₹{day.avgTicket}
+                            </td>
+
+                            {/* Visual Bar */}
+                            <td className="py-3.5 px-5 w-48">
+                              <div className="flex items-center gap-2">
+                                <div className="flex-1 h-2 rounded-full bg-white/10 overflow-hidden">
+                                  <div
+                                    className="h-full bg-gradient-to-r from-[#ff2626] to-emerald-400 rounded-full"
+                                    style={{ width: `${Math.min(100, Math.max(10, percentOfTotal * 3))}%` }}
+                                  />
+                                </div>
+                                <span className="text-[10px] font-mono text-white/50">{percentOfTotal}%</span>
+                              </div>
+                            </td>
+
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* VIEW B: MONTH-WISE TRACKING */}
+            {financialView === 'monthwise' && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-bold text-white font-display flex items-center gap-2">
+                    <BarChart3 className="w-4 h-4 text-amber-400" />
+                    <span>Monthly-Wise Amount Received</span>
+                  </h3>
+                  <span className="text-xs text-white/50">
+                    Aggregated by calendar month
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {monthWiseData.map((m) => (
+                    <div
+                      key={m.monthStr}
+                      className={`p-6 rounded-3xl border shadow-xl flex flex-col justify-between space-y-4 ${
+                        m.isCurrentMonth
+                          ? 'bg-gradient-to-br from-[#1a1414] to-[#121216] border-[#ff2626]/50'
+                          : 'bg-[#121216] border-white/10'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <span className="text-xs text-white/50 uppercase font-semibold block">Month</span>
+                          <h4 className="text-xl font-extrabold text-white font-display mt-0.5">
+                            {m.formattedMonth}
+                          </h4>
+                        </div>
+                        {m.isCurrentMonth && (
+                          <span className="px-2.5 py-0.5 rounded-full bg-[#ff2626] text-white text-[10px] font-bold">
+                            Current Month
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="space-y-2 py-2 border-y border-white/5">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-white/60">Total Amount Received</span>
+                          <span className="font-mono font-extrabold text-lg text-emerald-400">₹{m.revenue}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-white/60">Total Orders</span>
+                          <span className="font-mono font-bold text-white">{m.ordersCount}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-white/60">Avg Order Value (AOV)</span>
+                          <span className="font-mono text-white/80">₹{m.avgTicket}</span>
+                        </div>
+                      </div>
+
+                      <div className="text-[11px] text-white/40 flex items-center justify-between">
+                        <span>Gowlidoddy Kitchen</span>
+                        <span className="text-emerald-400 font-medium">100% Verified</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Monthly Comparison Table */}
+                <div className="rounded-3xl bg-[#121216] border border-white/10 overflow-hidden shadow-xl mt-6">
+                  <table className="w-full text-left text-xs text-white/70">
+                    <thead className="bg-white/5 text-white/50 uppercase text-[10px] tracking-wider border-b border-white/10">
+                      <tr>
+                        <th className="py-3 px-5">Month Period</th>
+                        <th className="py-3 px-4">Order Volume</th>
+                        <th className="py-3 px-4">Total Revenue</th>
+                        <th className="py-3 px-5 text-right">Contribution</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                      {monthWiseData.map((m) => (
+                        <tr key={m.monthStr} className="hover:bg-white/[0.02] transition-colors">
+                          <td className="py-3 px-5 font-bold text-white text-sm">
+                            {m.formattedMonth}
+                          </td>
+                          <td className="py-3 px-4 font-mono">
+                            {m.ordersCount} orders
+                          </td>
+                          <td className="py-3 px-4 font-mono font-bold text-emerald-400 text-sm">
+                            ₹{m.revenue}
+                          </td>
+                          <td className="py-3 px-5 text-right font-mono text-white/60">
+                            {totalRevenue > 0 ? Math.round((m.revenue / totalRevenue) * 100) : 0}% of all-time sales
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+              </div>
+            )}
+
+          </div>
+        )}
+
+        {/* ============================================================ */}
+        {/* TAB 3: MENU INVENTORY */}
         {/* ============================================================ */}
         {activeTab === 'menu' && (
           <div className="space-y-6">
@@ -488,7 +910,7 @@ export const AdminDashboard: React.FC = () => {
         )}
 
         {/* ============================================================ */}
-        {/* TAB 3: DISCOUNTS & OFFERS */}
+        {/* TAB 4: DISCOUNTS & OFFERS */}
         {/* ============================================================ */}
         {activeTab === 'discounts' && (
           <div className="space-y-6">
@@ -565,7 +987,7 @@ export const AdminDashboard: React.FC = () => {
         )}
 
         {/* ============================================================ */}
-        {/* TAB 4: STORE OPERATIONS & SETTINGS */}
+        {/* TAB 5: STORE OPERATIONS & SETTINGS */}
         {/* ============================================================ */}
         {activeTab === 'settings' && (
           <div className="space-y-6 max-w-3xl">

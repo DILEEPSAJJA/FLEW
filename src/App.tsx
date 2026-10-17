@@ -16,11 +16,13 @@ import { OrderPlatformModal } from './components/OrderPlatformModal';
 import { PhoneAuthModal } from './components/PhoneAuthModal';
 import { OrderTrackModal } from './components/OrderTrackModal';
 import { CatAssistant } from './components/CatAssistant';
+import { WelcomeAuthGate } from './components/WelcomeAuthGate';
 import { AdminDashboard } from './components/admin/AdminDashboard';
 
 function StorefrontApp() {
   const { 
     currentRoute, 
+    currentUser,
     isAuthModalOpen, 
     setIsAuthModalOpen,
     isOrderTrackModalOpen,
@@ -93,15 +95,20 @@ function StorefrontApp() {
 
   const totalCartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
-  // If Admin route is active, render the dedicated Admin Dashboard!
+  // 1. If Admin route is active (via /#admin), render the dedicated Admin Dashboard!
   if (currentRoute === 'admin') {
     return <AdminDashboard />;
   }
 
-  // Otherwise, render Customer End-User Storefront
+  // 2. For End-Users: At start of website, ask for mobile number & verify OTP before unlocking storefront!
+  if (!currentUser) {
+    return <WelcomeAuthGate onVerified={() => {}} />;
+  }
+
+  // 3. Once verified, render the full Customer End-User Storefront
   return (
     <div className="min-h-screen bg-[#0a0a0c] text-white flex flex-col font-sans selection:bg-[#ff2626] selection:text-white">
-      {/* Navigation */}
+      {/* Navigation (End-users see brand, menu, cart, order, and verified phone; no admin buttons) */}
       <Navbar
         cartCount={totalCartCount}
         onOpenCart={() => setIsCartOpen(true)}
