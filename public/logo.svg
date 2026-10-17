@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="100%" height="100%">
+  <defs>
+    <radialGradient id="redGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ff3b3b" />
+      <stop offset="85%" stop-color="#e61414" />
+      <stop offset="100%" stop-color="#b80909" />
+    </radialGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#ff2626" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+  
+  <!-- Outer glowing circle -->
+  <circle cx="100" cy="100" r="94" fill="url(#redGlow)" filter="url(#shadow)"/>
+  
+  <!-- Subtle dark rim -->
+  <circle cx="100" cy="100" r="93" fill="none" stroke="#ffffff" stroke-opacity="0.15" stroke-width="2"/>
+  
+  <!-- Pixelated blocky "FLEW" typography as seen in official brand logo -->
+  <g fill="#ffffff">
+    <!-- F -->
+    <path d="M 34 76 H 58 V 87 H 45 V 94 H 55 V 104 H 45 V 124 H 34 Z"/>
+    
+    <!-- L -->
+    <path d="M 64 76 H 75 V 114 H 90 V 124 H 64 Z"/>
+    
+    <!-- E -->
+    <path d="M 96 76 H 122 V 87 H 107 V 94 H 119 V 104 H 107 V 114 H 122 V 124 H 96 Z"/>
+    
+    <!-- W -->
+    <path d="M 128 76 H 139 V 110 L 145 92 H 154 L 160 110 V 76 H 171 V 124 H 159 L 149.5 98 L 140 124 H 128 Z"/>
+  </g>
+</svg>
