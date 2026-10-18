@@ -70,10 +70,6 @@ function getInitialDatabase(): DatabaseSchema {
 }
 
 export function loadDatabase(): DatabaseSchema {
-  if (dbCache) {
-    return dbCache;
-  }
-
   ensureDir(DATA_DIR);
 
   try {
@@ -90,6 +86,10 @@ export function loadDatabase(): DatabaseSchema {
     }
   } catch (err) {
     console.error('Error reading database file, initializing fresh:', err);
+  }
+
+  if (dbCache) {
+    return dbCache;
   }
 
   dbCache = getInitialDatabase();
@@ -247,13 +247,20 @@ export function getAllOrders(filterPhone?: string): Order[] {
 
 export function getOrderByNumber(orderNumber: string): Order | undefined {
   const db = loadDatabase();
-  const normalized = orderNumber.trim().toUpperCase();
-  return db.orders.find((o) => o.orderNumber.toUpperCase() === normalized);
+  const clean = orderNumber.trim().toUpperCase().replace(/^#/, '');
+  return db.orders.find((o) => {
+    const oNum = o.orderNumber.toUpperCase().replace(/^#/, '');
+    return oNum === clean;
+  });
 }
 
 export function updateOrderStatusInDb(orderNumber: string, status: OrderStatus): Order | undefined {
   const db = loadDatabase();
-  const idx = db.orders.findIndex((o) => o.orderNumber.toUpperCase() === orderNumber.trim().toUpperCase());
+  const clean = orderNumber.trim().toUpperCase().replace(/^#/, '');
+  const idx = db.orders.findIndex((o) => {
+    const oNum = o.orderNumber.toUpperCase().replace(/^#/, '');
+    return oNum === clean;
+  });
   if (idx >= 0) {
     db.orders[idx] = {
       ...db.orders[idx],

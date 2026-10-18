@@ -33,6 +33,7 @@ interface StoreContextType {
   updateOrderStatus: (orderNumber: string, status: OrderStatus) => void;
   activeOrder: Order | null;
   setActiveOrder: (order: Order | null) => void;
+  syncOrderTracking: (orderNumber: string) => Promise<Order | null>;
 
   // Reviews management (Customer rating with stars & comment)
   reviews: ReviewItem[];
@@ -247,11 +248,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             time: 'Just now',
           });
         } else if (data.type === 'STATUS_UPDATED') {
+          const cleanTarget = String(data.orderNumber).trim().replace(/^#/, '');
           setOrders((prev) =>
-            prev.map((o) => (o.orderNumber === data.orderNumber ? { ...o, status: data.status } : o))
+            prev.map((o) => (o.orderNumber.replace(/^#/, '') === cleanTarget ? { ...o, status: data.status } : o))
           );
           setActiveOrder((prev) =>
-            prev && prev.orderNumber === data.orderNumber ? { ...prev, status: data.status } : prev
+            prev && prev.orderNumber.replace(/^#/, '') === cleanTarget ? { ...prev, status: data.status } : prev
           );
         } else if (data.type === 'NEW_REVIEW' && data.review) {
           setReviews((prev) => {
@@ -354,11 +356,31 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }, [orders]);
 
-  // Current active tracking order (e.g. most recently placed or searched)
-  const [activeOrder, setActiveOrder] = useState<Order | null>(null);
+  // Current active tracking order (e.g. most recently placed or searched, persisted in localStorage)
+  const [activeOrder, setActiveOrder] = useState<Order | null>(() => {
+    try {
+      const saved = localStorage.getItem('flew_active_order');
+      if (saved) return JSON.parse(saved);
+    } catch {
+      // fallback
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    try {
+      if (activeOrder) {
+        localStorage.setItem('flew_active_order', JSON.stringify(activeOrder));
+      } else {
+        localStorage.removeItem('flew_active_order');
+      }
+    } catch (e) {
+      console.error('Failed to save active order', e);
+    }
+  }, [activeOrder]);
 
   // Track known orders to sound alert chime and notification banner only on newly arrived orders
-  const knownOrderNumbersRef = useRef<Set<string>>(new Set(orders.map((o) => o.orderNumber)));
+  const knownOrderNumbersRef = useRef<Set<string>>(new Set(orders.map((o) => o.orderNumber.replace(/^#/, ''))));
 
   // Real-time server order polling for cross-client, cross-device admin and storefront sync
   useEffect(() => {
@@ -384,8 +406,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
             let newlyReceivedPlacedOrder: Order | null = null;
             for (const so of serverOrders) {
-              if (!knownOrderNumbersRef.current.has(so.orderNumber)) {
-                knownOrderNumbersRef.current.add(so.orderNumber);
+              const cleanSoNum = so.orderNumber.replace(/^#/, '');
+              if (!knownOrderNumbersRef.current.has(cleanSoNum)) {
+                knownOrderNumbersRef.current.add(cleanSoNum);
                 if (so.status === 'placed') {
                   newlyReceivedPlacedOrder = so;
                 }
@@ -402,11 +425,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             }
 
             setOrders((prev) => {
-              const serverMap = new Map(serverOrders.map((o) => [o.orderNumber, o]));
+              const serverMap = new Map(serverOrders.map((o) => [o.orderNumber.replace(/^#/, ''), o]));
               const updatedList: Order[] = [...serverOrders];
 
               for (const po of prev) {
-                if (!serverMap.has(po.orderNumber)) {
+                if (!serverMap.has(po.orderNumber.replace(/^#/, ''))) {
                   updatedList.push(po);
                 }
               }
@@ -415,9 +438,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             });
 
             setActiveOrder((curr) => {
-              if (!curr) return curr;
-              const match = serverOrders.find((o) => o.orderNumber === curr.orderNumber);
-              if (match && match.status !== curr.status) {
+              const target = curr || (orders.length > 0 ? orders[0] : null);
+              if (!target) return curr;
+              const targetClean = target.orderNumber.replace(/^#/, '');
+              const match = serverOrders.find((o) => o.orderNumber.replace(/^#/, '') === targetClean);
+              if (match) {
                 return match;
               }
               return curr;
@@ -644,19 +669,22 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const updateOrderStatus = (orderNumber: string, status: OrderStatus) => {
+    const cleanNum = String(orderNumber).trim().replace(/^#/, '');
     setOrders((prev) =>
       prev.map((order) => {
-        if (order.orderNumber === orderNumber) {
-          const updated = { ...order, status };
-          if (activeOrder?.orderNumber === orderNumber) {
-            setActiveOrder(updated);
-          }
-          return updated;
+        if (order.orderNumber.replace(/^#/, '') === cleanNum) {
+          return { ...order, status };
         }
         return order;
       })
     );
-    broadcastMessage({ type: 'STATUS_UPDATED', orderNumber, status });
+    setActiveOrder((prev) => {
+      if (prev && prev.orderNumber.replace(/^#/, '') === cleanNum) {
+        return { ...prev, status };
+      }
+      return prev;
+    });
+    broadcastMessage({ type: 'STATUS_UPDATED', orderNumber: cleanNum, status });
 
     // Sync status change directly to backend database
     if (typeof window !== 'undefined') {
@@ -673,12 +701,41 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         method: 'PATCH',
         headers,
         body: JSON.stringify({
-          orderNumber,
+          orderNumber: cleanNum,
           status,
           adminToken: 'flew_admin_verified',
         }),
       }).catch((err) => console.warn('Status sync to backend failed:', err));
     }
+  };
+
+  const syncOrderTracking = async (orderNumber: string): Promise<Order | null> => {
+    const cleanNum = String(orderNumber).trim().replace(/^#/, '');
+    if (!cleanNum) return null;
+
+    try {
+      const res = await fetch(`/api/orders/track?orderNumber=${encodeURIComponent(cleanNum)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.order) {
+          const fresh: Order = data.order;
+          setActiveOrder(fresh);
+          setOrders((prev) => {
+            const idx = prev.findIndex((o) => o.orderNumber.replace(/^#/, '') === cleanNum);
+            if (idx >= 0) {
+              const updated = [...prev];
+              updated[idx] = fresh;
+              return updated;
+            }
+            return [fresh, ...prev];
+          });
+          return fresh;
+        }
+      }
+    } catch (err) {
+      console.warn('syncOrderTracking network error:', err);
+    }
+    return null;
   };
 
   // --- Review Actions ---
@@ -758,6 +815,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         updateOrderStatus,
         activeOrder,
         setActiveOrder,
+        syncOrderTracking,
         reviews,
         addReview,
         deleteReview,

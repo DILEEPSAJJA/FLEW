@@ -19,7 +19,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   const { 
     currentUser, 
     setIsAuthModalOpen, 
-    setIsOrderTrackModalOpen 
+    setIsOrderTrackModalOpen,
+    activeOrder 
   } = useStore();
 
   const [isScrolled, setIsScrolled] = useState(false);
@@ -118,14 +119,28 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* Right Actions: Track Order, Phone/Auth, Admin Switch, Cart, Order Button */}
             <div className="flex items-center gap-1.5 sm:gap-2.5">
               
-              {/* Track Order Pill */}
+              {/* Track Order Pill (Visible on mobile & desktop) */}
               <button
                 onClick={() => setIsOrderTrackModalOpen(true)}
-                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-white/80 hover:text-white border border-white/10 text-xs font-semibold transition-colors"
+                className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all ${
+                  activeOrder && ['placed', 'preparing', 'ready'].includes(activeOrder.status)
+                    ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 shadow-sm shadow-amber-500/20'
+                    : 'bg-white/5 hover:bg-white/10 text-white/80 hover:text-white border-white/10'
+                }`}
                 title="Track your order status"
               >
-                <Compass className="w-3.5 h-3.5 text-[#ff4444]" />
-                <span>Track Order</span>
+                <Compass className={`w-3.5 h-3.5 ${activeOrder && ['placed', 'preparing', 'ready'].includes(activeOrder.status) ? 'text-amber-400 animate-spin' : 'text-[#ff4444]'}`} />
+                <span className="flex items-center gap-1">
+                  {activeOrder && ['placed', 'preparing', 'ready'].includes(activeOrder.status) ? (
+                    <>
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping inline-block" />
+                      <span className="font-mono font-bold">#{activeOrder.orderNumber}</span>
+                    </>
+                  ) : (
+                    <span>Track</span>
+                  )}
+                  <span className="hidden sm:inline">Order</span>
+                </span>
               </button>
 
               {/* Phone Registration / Verified Badge */}
@@ -215,11 +230,26 @@ export const Navbar: React.FC<NavbarProps> = ({
                   setMobileMenuOpen(false);
                   setIsOrderTrackModalOpen(true);
                 }}
-                className="p-3 rounded-xl bg-white/5 border border-white/10 text-left"
+                className={`p-3 rounded-xl border text-left transition-colors ${
+                  activeOrder && ['placed', 'preparing', 'ready'].includes(activeOrder.status)
+                    ? 'bg-amber-500/10 border-amber-500/30'
+                    : 'bg-white/5 border-white/10'
+                }`}
               >
-                <Compass className="w-4 h-4 text-[#ff4444] mb-1" />
+                <div className="flex items-center justify-between mb-1">
+                  <Compass className={`w-4 h-4 ${activeOrder && ['placed', 'preparing', 'ready'].includes(activeOrder.status) ? 'text-amber-400' : 'text-[#ff4444]'}`} />
+                  {activeOrder && ['placed', 'preparing', 'ready'].includes(activeOrder.status) && (
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-300 font-bold">
+                      #{activeOrder.orderNumber}
+                    </span>
+                  )}
+                </div>
                 <div className="text-xs font-bold text-white">Track Order</div>
-                <div className="text-[10px] text-white/50">Check live status</div>
+                <div className="text-[10px] text-white/50 capitalize">
+                  {activeOrder && ['placed', 'preparing', 'ready'].includes(activeOrder.status)
+                    ? activeOrder.status
+                    : 'Check live status'}
+                </div>
               </button>
 
               <button

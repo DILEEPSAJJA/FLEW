@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Search, CheckCircle2, Clock, ChefHat, Package, Check, MessageCircle, Star } from 'lucide-react';
+import { X, Search, CheckCircle2, Clock, ChefHat, Package, Check, MessageCircle, Star, RefreshCw } from 'lucide-react';
 import { useStore } from '../context/StoreContext';
 import { OrderStatus } from '../types';
 import { STORE_INFO } from '../data/flewData';
@@ -10,11 +10,13 @@ interface OrderTrackModalProps {
 }
 
 export const OrderTrackModal: React.FC<OrderTrackModalProps> = ({ isOpen, onClose }) => {
-  const { orders, activeOrder, setActiveOrder, reviews, openReviewModal } = useStore();
+  const { orders, activeOrder, setActiveOrder, syncOrderTracking, reviews, openReviewModal } = useStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
 
-  const currentOrder = activeOrder || orders[0];
+  const currentOrder = activeOrder || (orders.length > 0 ? orders[0] : null);
 
   // Poll server for real-time status updates (e.g. when Admin accepts and starts preparing)
   useEffect(() => {
@@ -22,45 +24,77 @@ export const OrderTrackModal: React.FC<OrderTrackModalProps> = ({ isOpen, onClos
 
     let isSubscribed = true;
     const fetchStatus = async () => {
-      try {
-        const res = await fetch(`/api/orders/track?orderNumber=${encodeURIComponent(currentOrder.orderNumber)}`);
-        if (res.ok && isSubscribed) {
-          const data = await res.json();
-          if (data && data.order && data.order.status !== currentOrder.status) {
-            setActiveOrder(data.order);
-          }
-        }
-      } catch {
-        // silent
+      if (isSubscribed) {
+        await syncOrderTracking(currentOrder.orderNumber);
       }
     };
 
-    const interval = setInterval(fetchStatus, 2500);
+    fetchStatus(); // immediately check server on open
+    const interval = setInterval(fetchStatus, 2000);
     return () => {
       isSubscribed = false;
       clearInterval(interval);
     };
-  }, [isOpen, currentOrder?.orderNumber, currentOrder?.status, setActiveOrder]);
+  }, [isOpen, currentOrder?.orderNumber, syncOrderTracking]);
 
   if (!isOpen) return null;
 
-  const handleSearch = (e: React.FormEvent) => {
+  const handleManualRefresh = async () => {
+    if (!currentOrder?.orderNumber || isRefreshing) return;
+    setIsRefreshing(true);
+    await syncOrderTracking(currentOrder.orderNumber);
+    setTimeout(() => setIsRefreshing(false), 500);
+  };
+
+  const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     const query = searchQuery.trim().toLowerCase().replace(/^#/, '');
     if (!query) return;
 
+    setIsSearching(true);
+    setErrorMsg('');
+
+    // 1. Try server direct order lookup first
+    const serverOrder = await syncOrderTracking(query);
+    if (serverOrder) {
+      setActiveOrder(serverOrder);
+      setIsSearching(false);
+      return;
+    }
+
+    // 2. Try matching in existing local orders
     const found = orders.find(
       (o) =>
         o.orderNumber.toLowerCase() === query ||
-        o.orderNumber.toLowerCase() === `flw-${query}` ||
-        o.customerPhone.includes(query)
+        o.orderNumber.toLowerCase().replace(/^#/, '') === query ||
+        o.customerPhone.replace(/[^0-9]/g, '').includes(query)
     );
     if (found) {
       setActiveOrder(found);
-      setErrorMsg('');
-    } else {
-      setErrorMsg(`No order found matching "${searchQuery}".`);
+      await syncOrderTracking(found.orderNumber);
+      setIsSearching(false);
+      return;
     }
+
+    // 3. Try phone search on server
+    if (/^\d{5,10}$/.test(query)) {
+      try {
+        const phoneRes = await fetch(`/api/orders?phone=${encodeURIComponent(query)}`);
+        if (phoneRes.ok) {
+          const phoneData = await phoneRes.json();
+          if (phoneData && Array.isArray(phoneData.orders) && phoneData.orders.length > 0) {
+            setActiveOrder(phoneData.orders[0]);
+            setIsSearching(false);
+            return;
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    setErrorMsg(`No order found matching "${searchQuery}". Please check the order number.`);
+    setIsSearching(false);
   };
 
   const steps: { key: OrderStatus; label: string; desc: string; icon: any }[] = [
@@ -115,7 +149,7 @@ export const OrderTrackModal: React.FC<OrderTrackModalProps> = ({ isOpen, onClos
         </div>
 
         {/* Search by Order Number */}
-        <form onSubmit={handleSearch} className="mb-6">
+        <form onSubmit={handleSearch} className="mb-4">
           <div className="flex items-center gap-2">
             <div className="relative flex-1">
               <Search className="w-4 h-4 text-white/40 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -129,13 +163,47 @@ export const OrderTrackModal: React.FC<OrderTrackModalProps> = ({ isOpen, onClos
             </div>
             <button
               type="submit"
-              className="px-4 py-2 bg-[#ff2626] hover:bg-[#ff3b3b] text-white text-xs font-bold rounded-xl transition-colors"
+              disabled={isSearching}
+              className="px-4 py-2 bg-[#ff2626] hover:bg-[#ff3b3b] disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-colors flex items-center gap-1.5"
             >
-              Track
+              {isSearching ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
+              <span>Track</span>
             </button>
           </div>
           {errorMsg && <p className="text-xs text-[#ff4444] mt-2 text-center">{errorMsg}</p>}
         </form>
+
+        {/* Recent Orders quick selector */}
+        {orders.length > 1 && (
+          <div className="mb-5 pb-3 border-b border-white/10">
+            <div className="text-[10px] font-bold text-white/40 uppercase tracking-wider mb-2">
+              Select Recent Order
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {orders.slice(0, 6).map((o) => {
+                const isSelected = currentOrder?.orderNumber === o.orderNumber;
+                return (
+                  <button
+                    key={o.orderNumber}
+                    type="button"
+                    onClick={() => {
+                      setActiveOrder(o);
+                      syncOrderTracking(o.orderNumber);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all ${
+                      isSelected
+                        ? 'bg-[#ff2626] text-white shadow-sm'
+                        : 'bg-white/5 hover:bg-white/10 text-white/70 hover:text-white border border-white/10'
+                    }`}
+                  >
+                    <span className="font-mono font-bold">#{o.orderNumber}</span>
+                    <span className="text-[10px] capitalize opacity-80">({o.status})</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {currentOrder ? (
           <div className="space-y-6">
@@ -152,19 +220,33 @@ export const OrderTrackModal: React.FC<OrderTrackModalProps> = ({ isOpen, onClos
                 </div>
               </div>
 
-              <div className="text-right">
-                <span className="px-3 py-1 rounded-full text-xs font-bold capitalize inline-block border ${
-                  currentOrder.status === 'completed'
-                    ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300'
-                    : currentOrder.status === 'ready'
-                    ? 'bg-amber-950/80 border-amber-500/50 text-amber-300'
-                    : 'bg-[#ff2626]/20 border-[#ff2626]/50 text-[#ff4444]'
-                }">
-                  ● {currentOrder.status}
-                </span>
-                <div className="text-[11px] text-white/50 mt-1">
-                  Placed {new Date(currentOrder.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              <div className="flex items-center gap-2">
+                <div className="text-right">
+                  <span className={`px-3 py-1 rounded-full text-xs font-bold capitalize inline-block border ${
+                    currentOrder.status === 'completed'
+                      ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300'
+                      : currentOrder.status === 'ready'
+                      ? 'bg-amber-950/80 border-amber-500/50 text-amber-300'
+                      : currentOrder.status === 'preparing'
+                      ? 'bg-indigo-950/80 border-indigo-500/50 text-indigo-300'
+                      : 'bg-[#ff2626]/20 border-[#ff2626]/50 text-[#ff4444]'
+                  }`}>
+                    ● {currentOrder.status === 'preparing' ? 'Preparing in Kitchen' : currentOrder.status === 'placed' ? 'Order Received' : currentOrder.status === 'ready' ? 'Ready / Out for Delivery' : currentOrder.status}
+                  </span>
+                  <div className="text-[11px] text-white/50 mt-1">
+                    Placed {new Date(currentOrder.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </div>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={handleManualRefresh}
+                  disabled={isRefreshing}
+                  className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white/60 hover:text-white transition-colors"
+                  title="Refresh order status"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-[#ff4444]' : ''}`} />
+                </button>
               </div>
             </div>
 

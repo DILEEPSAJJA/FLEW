@@ -433,9 +433,10 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
       return true;
     }
 
-    const updated = updateOrderStatusInDb(orderNumber, status as OrderStatus);
+    const cleanOrderNumber = String(orderNumber).trim().replace(/^#/, '');
+    const updated = updateOrderStatusInDb(cleanOrderNumber, status as OrderStatus);
     if (!updated) {
-      sendJson(res, 404, { success: false, message: `Order #${orderNumber} not found` });
+      sendJson(res, 404, { success: false, message: `Order #${cleanOrderNumber} not found` });
       return true;
     }
 
@@ -447,15 +448,16 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
   // 9. GET /api/orders/track — Public Order Tracking by Reference
   // ---------------------------------------------------------------------------
   if (method === 'GET' && normalizedPath === '/api/orders/track') {
-    const orderNumber = query.get('orderNumber');
-    if (!orderNumber) {
+    const rawOrderNumber = query.get('orderNumber');
+    if (!rawOrderNumber) {
       sendJson(res, 400, { success: false, message: 'Missing orderNumber query param' });
       return true;
     }
 
-    const order = getOrderByNumber(orderNumber);
+    const cleanOrderNumber = String(rawOrderNumber).trim().replace(/^#/, '');
+    const order = getOrderByNumber(cleanOrderNumber);
     if (!order) {
-      sendJson(res, 404, { success: false, message: `Order #${orderNumber} not found` });
+      sendJson(res, 404, { success: false, message: `Order #${cleanOrderNumber} not found` });
       return true;
     }
 
