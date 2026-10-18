@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Search, CheckCircle2, Clock, ChefHat, Package, Check, MessageCircle, Star } from 'lucide-react';
 import { useStore } from '../context/StoreContext';
 import { OrderStatus } from '../types';
@@ -14,9 +14,35 @@ export const OrderTrackModal: React.FC<OrderTrackModalProps> = ({ isOpen, onClos
   const [searchQuery, setSearchQuery] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
-  if (!isOpen) return null;
-
   const currentOrder = activeOrder || orders[0];
+
+  // Poll server for real-time status updates (e.g. when Admin accepts and starts preparing)
+  useEffect(() => {
+    if (!isOpen || !currentOrder?.orderNumber) return;
+
+    let isSubscribed = true;
+    const fetchStatus = async () => {
+      try {
+        const res = await fetch(`/api/orders/track?orderNumber=${encodeURIComponent(currentOrder.orderNumber)}`);
+        if (res.ok && isSubscribed) {
+          const data = await res.json();
+          if (data && data.order && data.order.status !== currentOrder.status) {
+            setActiveOrder(data.order);
+          }
+        }
+      } catch {
+        // silent
+      }
+    };
+
+    const interval = setInterval(fetchStatus, 2500);
+    return () => {
+      isSubscribed = false;
+      clearInterval(interval);
+    };
+  }, [isOpen, currentOrder?.orderNumber, currentOrder?.status, setActiveOrder]);
+
+  if (!isOpen) return null;
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();

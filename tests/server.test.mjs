@@ -408,6 +408,43 @@ describe('FLEW Backend & Security Test Suite', () => {
       const trackRes = await dispatch('GET', `/api/orders/track?orderNumber=${createdOrderNumber}`);
       assert.equal(trackRes.json()?.order?.status, 'out-for-delivery');
     });
+
+    test('allows admin portal to poll all orders via scope=admin', async () => {
+      const res = await dispatch('GET', '/api/orders?scope=admin');
+      assert.equal(res.statusCode, 200);
+      const json = res.json();
+      assert.equal(json.success, true);
+      assert.ok(Array.isArray(json.orders));
+      assert.ok(json.orders.length > 0);
+    });
+
+    test('allows order creation with valid Indian customer phone and verifies placed status for admin acceptance', async () => {
+      const res = await dispatch('POST', '/api/orders/create', {
+        customerName: 'Kavya Sharma',
+        customerPhone: '+91 98480 12345',
+        deliveryAddress: 'Flat 304, Gowlidoddy, Hyderabad',
+        orderType: 'delivery',
+        items: [{ itemId: 'roasted-almond-choco', quantity: 1 }],
+      });
+
+      assert.equal(res.statusCode, 201);
+      const json = res.json();
+      assert.equal(json.success, true);
+      assert.equal(json.order?.status, 'placed');
+      assert.equal(json.order?.customerPhone, '9848012345');
+
+      // Admin accepts the order to start kitchen preparation
+      const adminToken = issueAdminSession();
+      const acceptRes = await dispatch('PATCH', '/api/orders/status', {
+        orderNumber: json.order.orderNumber,
+        status: 'preparing',
+      }, {
+        authorization: `Bearer ${adminToken}`,
+      });
+
+      assert.equal(acceptRes.statusCode, 200);
+      assert.equal(acceptRes.json()?.order?.status, 'preparing');
+    });
   });
 
   // ---------------------------------------------------------------------------

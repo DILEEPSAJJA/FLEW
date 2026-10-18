@@ -210,12 +210,12 @@ export const PhoneAuthModal: React.FC<PhoneAuthModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
-      <div className="relative w-full max-w-md bg-[#121216] border border-white/15 rounded-3xl p-6 sm:p-7 shadow-2xl shadow-black my-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+      <div className="relative w-full max-w-md bg-[#121216] border border-white/15 rounded-3xl p-4 sm:p-7 shadow-2xl shadow-black my-auto">
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-5 right-5 w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-white/60 hover:text-white transition-colors"
+          className="absolute top-4 right-4 sm:top-5 sm:right-5 w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-white/60 hover:text-white transition-colors"
         >
           <X className="w-4 h-4" />
         </button>
@@ -311,40 +311,40 @@ export const PhoneAuthModal: React.FC<PhoneAuthModalProps> = ({
           <div className="space-y-4">
             {/* Simulated SMS Notification Banner */}
             {simulatedSms && (
-              <div className="p-3.5 rounded-2xl bg-[#1f1414] border-2 border-[#ff2626]/60 shadow-xl text-xs text-white animate-bounce-slow">
-                <div className="flex items-start gap-2.5">
-                  <div className="w-8 h-8 rounded-full bg-[#ff2626]/20 border border-[#ff2626]/50 flex items-center justify-center text-[#ff4444] shrink-0 mt-0.5">
+              <div className="p-3 sm:p-3.5 rounded-2xl bg-[#1f1414] border-2 border-[#ff2626]/60 shadow-xl text-xs text-white">
+                <div className="flex items-start gap-2.5 sm:gap-3">
+                  <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-[#ff2626]/20 border border-[#ff2626]/50 flex items-center justify-center text-[#ff4444] shrink-0 mt-0.5">
                     <MessageSquare className="w-4 h-4" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between text-[11px] text-white/50 mb-0.5">
-                      <span className="font-bold text-white flex items-center gap-1">
+                    <div className="flex items-center justify-between text-[11px] text-white/50 mb-1">
+                      <span className="font-bold text-white flex items-center gap-1.5">
                         <span>MESSAGES</span>
                         <span className="w-1.5 h-1.5 rounded-full bg-[#ff2626]" />
                       </span>
-                      <span>now</span>
+                      <span className="text-[10px] text-white/40">just now</span>
                     </div>
-                    <p className="text-white/90 text-xs font-mono leading-relaxed">
-                      FLEW OTP: <strong className="text-[#ff4444] text-sm bg-black/50 px-1.5 py-0.5 rounded border border-[#ff2626]/30">{generatedOtp}</strong>
+                    <p className="text-white/90 text-xs sm:text-sm font-mono leading-relaxed break-words">
+                      FLEW OTP: <strong className="text-[#ff4444] text-sm sm:text-base font-extrabold bg-black/70 px-2 py-0.5 rounded border border-[#ff2626]/40 inline-block tracking-wider">{generatedOtp}</strong> is your code for FLEW.
                     </p>
-                    <div className="mt-2 flex items-center gap-2">
+                    <div className="mt-2.5 flex flex-col sm:flex-row sm:items-center gap-2">
                       <button
                         type="button"
                         onClick={handleAutofillOtp}
-                        className="px-2.5 py-1 bg-[#ff2626] hover:bg-[#ff3b3b] text-white text-[11px] font-bold rounded-lg transition-all shadow-md shadow-[#ff2626]/30 flex items-center gap-1"
+                        className="w-full sm:w-auto px-3.5 py-2 bg-[#ff2626] hover:bg-[#ff3b3b] text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-[#ff2626]/30 flex items-center justify-center gap-1.5 active:scale-95 touch-manipulation"
                       >
-                        <Sparkles className="w-3 h-3" />
+                        <Sparkles className="w-3.5 h-3.5" />
                         <span>Auto-Fill Code ({generatedOtp})</span>
                       </button>
-                      <span className="text-[10px] text-white/40">Tap to verify</span>
+                      <span className="text-[11px] text-white/50 text-center sm:text-left">Tap to fill & verify</span>
                     </div>
                   </div>
                 </div>
               </div>
             )}
 
-            <div className="text-center">
-              <h3 className="text-xl font-extrabold text-white font-display">
+            <div className="text-center pt-0.5">
+              <h3 className="text-xl sm:text-2xl font-extrabold text-white font-display">
                 Enter Mobile OTP
               </h3>
               <p className="text-xs text-white/60 mt-1">
@@ -353,23 +353,30 @@ export const PhoneAuthModal: React.FC<PhoneAuthModalProps> = ({
             </div>
 
             {/* 4 Digit Boxes */}
-            <div className="flex justify-center gap-3">
-              {[0, 1, 2, 3].map((index) => (
-                <input
-                  key={index}
-                  ref={(el) => { otpInputsRef.current[index] = el; }}
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={1}
-                  value={enteredOtp[index]}
-                  disabled={isLoading}
-                  onChange={(e) => handleOtpChange(index, e.target.value)}
-                  onKeyDown={(e) => handleOtpKeyDown(index, e)}
-                  onPaste={handleOtpPaste}
-                  autoFocus={index === 0}
-                  className="w-12 h-14 sm:w-14 sm:h-16 text-center text-2xl font-bold font-mono bg-[#18181f] border-2 border-white/15 focus:border-[#ff2626] rounded-2xl text-white focus:outline-none transition-colors shadow-inner"
-                />
-              ))}
+            <div>
+              <div className="flex justify-center items-center gap-2.5 sm:gap-3.5 max-w-[280px] sm:max-w-xs mx-auto">
+                {[0, 1, 2, 3].map((index) => (
+                  <input
+                    key={index}
+                    ref={(el) => { otpInputsRef.current[index] = el; }}
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    pattern="[0-9]*"
+                    maxLength={1}
+                    value={enteredOtp[index]}
+                    disabled={isLoading}
+                    onChange={(e) => handleOtpChange(index, e.target.value)}
+                    onKeyDown={(e) => handleOtpKeyDown(index, e)}
+                    onPaste={handleOtpPaste}
+                    autoFocus={index === 0}
+                    className="w-12 h-14 sm:w-14 sm:h-16 text-center text-2xl sm:text-3xl font-extrabold font-mono bg-[#18181f] border-2 border-white/20 focus:border-[#ff2626] focus:bg-[#201518] rounded-xl sm:rounded-2xl text-white focus:outline-none transition-all shadow-inner touch-manipulation select-none"
+                  />
+                ))}
+              </div>
+              <span className="text-[11px] text-white/50 block text-center mt-2">
+                Type the 4-digit code or tap Auto-Fill Code above.
+              </span>
             </div>
 
             {errorMsg && (
@@ -379,18 +386,18 @@ export const PhoneAuthModal: React.FC<PhoneAuthModalProps> = ({
               </div>
             )}
 
-            <div className="flex items-center justify-between text-xs text-white/60 pt-1">
+            <div className="flex items-center justify-between text-xs text-white/60 pt-1 px-1">
               <button
                 type="button"
                 disabled={isLoading}
                 onClick={() => { setStep('phone'); setErrorMsg(''); setSimulatedSms(null); }}
-                className="hover:text-white underline"
+                className="hover:text-white underline shrink-0 py-1.5 touch-manipulation"
               >
                 Change Number
               </button>
 
               {resendTimer > 0 ? (
-                <span className="text-white/40 font-mono text-[11px]">
+                <span className="text-white/40 font-mono text-[11px] shrink-0 py-1.5">
                   Resend in {resendTimer}s
                 </span>
               ) : (
@@ -398,7 +405,7 @@ export const PhoneAuthModal: React.FC<PhoneAuthModalProps> = ({
                   type="button"
                   disabled={isLoading}
                   onClick={handleResendOtp}
-                  className="text-[#ff4444] font-bold flex items-center gap-1 hover:underline text-[11px]"
+                  className="text-[#ff4444] font-bold flex items-center gap-1 hover:underline text-[11px] shrink-0 py-1.5 touch-manipulation"
                 >
                   <RefreshCw className="w-3 h-3" />
                   <span>Resend Code</span>
@@ -410,7 +417,7 @@ export const PhoneAuthModal: React.FC<PhoneAuthModalProps> = ({
               type="button"
               disabled={isLoading || enteredOtp.filter(Boolean).length < 4}
               onClick={() => validateOtpCode()}
-              className="w-full py-3 bg-[#ff2626] hover:bg-[#ff3b3b] disabled:opacity-40 text-white font-bold rounded-xl shadow-lg shadow-[#ff2626]/30 flex items-center justify-center gap-2 transition-all active:scale-95 text-sm"
+              className="w-full py-3.5 bg-gradient-to-r from-[#ff2626] to-[#dc2626] hover:opacity-95 disabled:opacity-40 text-white font-bold rounded-xl shadow-lg shadow-[#ff2626]/30 flex items-center justify-center gap-2 transition-all active:scale-95 text-sm touch-manipulation"
             >
               {isLoading ? (
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />

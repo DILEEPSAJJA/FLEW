@@ -226,7 +226,12 @@ export function getNextDailyOrderNumber(): string {
 
 export function saveOrder(order: Order): Order {
   const db = loadDatabase();
-  db.orders.unshift(order);
+  const existingIdx = db.orders.findIndex((o) => o.orderNumber.toUpperCase() === order.orderNumber.trim().toUpperCase());
+  if (existingIdx >= 0) {
+    db.orders[existingIdx] = order;
+  } else {
+    db.orders.unshift(order);
+  }
   saveDatabase(db);
   return order;
 }
