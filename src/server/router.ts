@@ -6,7 +6,8 @@ import {
   getAllOrders, 
   getOrderByNumber, 
   updateOrderStatusInDb, 
-  checkAndRecordRateLimit 
+  checkAndRecordRateLimit,
+  getNextDailyOrderNumber
 } from './db';
 import { 
   authenticateRequest, 
@@ -320,19 +321,33 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
     });
 
     const subtotal = verifiedItems.reduce((sum: number, i: any) => sum + i.lineTotal, 0);
-    const orderNumber = `FLW-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    // Sequential 4-digit order number (starts at 0001 everyday, continues sequentially)
+    const orderNumber = (body.orderNumber && /^\d{4}$/.test(String(body.orderNumber)))
+      ? String(body.orderNumber)
+      : getNextDailyOrderNumber();
+
+    // Valid customer delivery address or mode descriptor without fake fallback
+    let orderAddress = (body.deliveryAddress || '').trim();
+    if (!orderAddress) {
+      if (body.orderType === 'takeaway') {
+        orderAddress = 'Takeaway (Store Pickup)';
+      } else if (body.orderType === 'dine-in') {
+        orderAddress = 'Dine-in at FLEW';
+      }
+    }
 
     const newOrder: Order = {
       orderNumber,
-      customerPhone: auth.payload.phone || body.customerPhone || 'Verified Customer',
-      customerName: body.customerName || 'Flew Patron',
-      deliveryAddress: body.deliveryAddress || 'Sai Tulasi Enclave, Gowlidoddy',
+      customerPhone: auth.payload.phone || body.customerPhone || 'Customer',
+      customerName: body.customerName || 'Customer',
+      deliveryAddress: orderAddress,
       orderType: body.orderType || 'delivery',
       items: verifiedItems,
       subtotal,
       discountTotal: 0,
       finalTotal: subtotal,
-      status: 'placed',
+      status: 'placed', // Awaiting admin acceptance
       createdAt: new Date().toISOString(),
       estimatedMinutes: 20,
     };

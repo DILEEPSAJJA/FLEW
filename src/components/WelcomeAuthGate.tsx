@@ -203,7 +203,7 @@ export const WelcomeAuthGate: React.FC<WelcomeAuthGateProps> = ({ onVerified }) 
     if (valid) {
       navigateTo('admin');
     } else {
-      setAdminPinError('Invalid Passcode. (Store PIN: 123789)');
+      setAdminPinError('Invalid Passcode. Access denied.');
     }
   };
 
@@ -458,12 +458,12 @@ export const WelcomeAuthGate: React.FC<WelcomeAuthGateProps> = ({ onVerified }) 
               className="text-[10px] text-white/30 hover:text-white/70 transition-colors inline-flex items-center gap-1"
             >
               <Lock className="w-2.5 h-2.5" />
-              <span>Store Staff Portal (PIN: 123789)</span>
+              <span>Store Staff Portal</span>
             </button>
           ) : (
             <form onSubmit={handleAdminLogin} className="space-y-2 max-w-xs mx-auto animate-fadeIn">
               <div className="text-[11px] text-white/60 font-semibold flex items-center justify-between">
-                <span>Enter 6-Digit Store PIN:</span>
+                <span>Enter Store Staff PIN:</span>
                 <button
                   type="button"
                   onClick={() => setShowAdminPinPrompt(false)}
@@ -478,7 +478,7 @@ export const WelcomeAuthGate: React.FC<WelcomeAuthGateProps> = ({ onVerified }) 
                   maxLength={6}
                   value={adminPin}
                   onChange={(e) => setAdminPin(e.target.value)}
-                  placeholder="PIN: 123789"
+                  placeholder="••••••"
                   autoFocus
                   className="flex-1 rounded-lg bg-[#18181f] border border-white/10 px-2.5 py-1 text-xs text-white font-mono focus:outline-none focus:border-[#ff2626]"
                 />

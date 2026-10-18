@@ -33,6 +33,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
   const [orderType, setOrderType] = useState<'takeaway' | 'delivery' | 'dine-in'>('delivery');
   const [deliveryNote, setDeliveryNote] = useState('');
+  const [addressError, setAddressError] = useState('');
 
   if (!isOpen) return null;
 
@@ -46,11 +47,27 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
       return;
     }
 
-    // Create official order
+    // Determine valid delivery address
+    let finalAddress = '';
+    if (orderType === 'takeaway') {
+      finalAddress = 'Takeaway (Store Pickup)';
+    } else if (orderType === 'dine-in') {
+      finalAddress = 'Dine-in at FLEW';
+    } else {
+      finalAddress = (deliveryNote || currentUser.address || '').trim();
+      if (!finalAddress) {
+        setAddressError('Please enter your delivery address / landmark.');
+        return;
+      }
+    }
+
+    setAddressError('');
+
+    // Create official order with sequential order number
     createOrder({
       customerPhone: currentUser.formattedPhone,
-      customerName: currentUser.name || 'Flew Patron',
-      deliveryAddress: currentUser.address || deliveryNote || 'Sai Tulasi Enclave, Gowlidoddy',
+      customerName: currentUser.name || 'Customer',
+      deliveryAddress: finalAddress,
       orderType,
       items: items.map((i) => ({
         item: i.item,
@@ -87,7 +104,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     if (currentUser) {
       message += `*Customer:* ${currentUser.name} (${currentUser.formattedPhone})\n`;
     }
-    message += `📍 *Delivery Landmark:* ${currentUser?.address || deliveryNote || 'Gowlidoddy'}\n`;
+    const dest = orderType === 'takeaway' ? 'Store Pickup (Takeaway)' : orderType === 'dine-in' ? 'Dine-in at FLEW' : (deliveryNote || currentUser?.address || 'Delivery');
+    message += `📍 *Order Destination:* ${dest}\n`;
 
     const phone = STORE_INFO.social.whatsappNumber?.replace('+', '') || '919999999999';
     const encoded = encodeURI(message);
@@ -276,16 +294,35 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 </div>
               </div>
 
-              {/* Delivery Landmark note */}
-              <div>
-                <input
-                  type="text"
-                  value={deliveryNote}
-                  onChange={(e) => setDeliveryNote(e.target.value)}
-                  placeholder="Delivery address or special note..."
-                  className="w-full bg-[#18181f] border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-white/30 focus:border-[#ff2626] focus:outline-none"
-                />
-              </div>
+              {/* Delivery Landmark or Pickup Info */}
+              {orderType === 'delivery' ? (
+                <div>
+                  <label className="block text-[11px] font-semibold text-white/70 mb-1">
+                    Delivery Address / Landmark *
+                  </label>
+                  <input
+                    type="text"
+                    value={deliveryNote}
+                    onChange={(e) => {
+                      setDeliveryNote(e.target.value);
+                      if (addressError) setAddressError('');
+                    }}
+                    placeholder="Enter flat / house no., building, landmark..."
+                    className="w-full bg-[#18181f] border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-white/30 focus:border-[#ff2626] focus:outline-none"
+                  />
+                  {addressError && (
+                    <p className="text-[11px] text-[#ff4444] mt-1 font-medium">{addressError}</p>
+                  )}
+                </div>
+              ) : orderType === 'takeaway' ? (
+                <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/10 text-xs text-white/70">
+                  🛍️ <strong className="text-white">Store Pickup:</strong> Ready at FLEW Gowlidoddy counter.
+                </div>
+              ) : (
+                <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/10 text-xs text-white/70">
+                  🍽️ <strong className="text-white">Dine-in:</strong> Table seating at FLEW Cat Dessert Cafe.
+                </div>
+              )}
 
               {/* Subtotal */}
               <div className="space-y-1 pt-1 border-t border-white/5">

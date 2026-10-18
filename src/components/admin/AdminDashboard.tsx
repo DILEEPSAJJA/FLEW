@@ -346,9 +346,9 @@ export const AdminDashboard: React.FC = () => {
         
         {/* Real-time Order Arrival Banner */}
         {latestAlert && (
-          <div className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-[#ff2626]/20 via-amber-500/20 to-[#ff2626]/20 border border-[#ff2626]/40 flex items-center justify-between gap-4 animate-bounce">
+          <div className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-[#ff2626]/20 via-amber-500/20 to-[#ff2626]/20 border border-[#ff2626]/40 flex flex-wrap items-center justify-between gap-4 animate-bounce">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[#ff2626] text-white flex items-center justify-center font-bold text-lg shadow-lg shadow-[#ff2626]/50">
+              <div className="w-10 h-10 rounded-full bg-[#ff2626] text-white flex items-center justify-center font-bold text-lg shadow-lg shadow-[#ff2626]/50 shrink-0">
                 🔔
               </div>
               <div>
@@ -356,16 +356,28 @@ export const AdminDashboard: React.FC = () => {
                   {latestAlert.text}
                 </div>
                 <div className="text-xs text-white/60">
-                  Real-time multi-tab order sync active. Order #{latestAlert.id} received!
+                  Real-time multi-tab order sync active. Order #{latestAlert.id} received! Click Accept to start kitchen preparation.
                 </div>
               </div>
             </div>
-            <button
-              onClick={dismissAlert}
-              className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-bold text-white transition-colors"
-            >
-              Dismiss
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  updateOrderStatus(latestAlert.id, 'preparing');
+                  dismissAlert();
+                }}
+                className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white flex items-center gap-1.5 shadow-md shadow-emerald-600/30 transition-all"
+              >
+                <ChefHat className="w-3.5 h-3.5" />
+                <span>Accept & Start Preparing</span>
+              </button>
+              <button
+                onClick={dismissAlert}
+                className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-bold text-white transition-colors"
+              >
+                Dismiss
+              </button>
+            </div>
           </div>
         )}
 
@@ -427,7 +439,11 @@ export const AdminDashboard: React.FC = () => {
                 {filteredOrders.map((order) => (
                   <div
                     key={order.orderNumber}
-                    className="rounded-3xl bg-[#121216] border border-white/10 p-5 flex flex-col justify-between shadow-xl space-y-4 hover:border-white/20 transition-all"
+                    className={`rounded-3xl bg-[#121216] p-5 flex flex-col justify-between shadow-xl space-y-4 transition-all ${
+                      order.status === 'placed'
+                        ? 'border-2 border-amber-500/70 shadow-amber-500/10'
+                        : 'border border-white/10 hover:border-white/20'
+                    }`}
                   >
                     <div>
                       {/* Top Order Row */}
@@ -486,12 +502,66 @@ export const AdminDashboard: React.FC = () => {
                         ))}
                       </div>
 
-                      {order.deliveryAddress && (
-                        <div className="mt-3 p-2 rounded-xl bg-white/[0.02] border border-white/5 text-[11px] text-white/60">
-                          📍 {order.deliveryAddress}
+                      {order.deliveryAddress ? (
+                        <div className="mt-3 p-2.5 rounded-xl bg-white/[0.02] border border-white/5 text-[11px] text-white/70">
+                          {order.orderType === 'takeaway' ? '🛍️' : order.orderType === 'dine-in' ? '🍽️' : '📍'}{' '}
+                          <span className="capitalize font-bold text-white">[{order.orderType}]</span>: {order.deliveryAddress}
+                        </div>
+                      ) : (
+                        <div className="mt-3 p-2.5 rounded-xl bg-white/[0.02] border border-white/5 text-[11px] text-white/50">
+                          Order Mode: <span className="capitalize font-bold text-white">{order.orderType}</span>
                         </div>
                       )}
                     </div>
+
+                    {/* Interactive Action Buttons based on order lifecycle */}
+                    {order.status === 'placed' && (
+                      <div className="p-3 rounded-2xl bg-amber-950/40 border border-amber-500/40 space-y-2">
+                        <div className="flex items-center gap-1.5 text-[11px] font-bold text-amber-300">
+                          <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                          <span>Action Required: Accept order to start preparing</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            onClick={() => updateOrderStatus(order.orderNumber, 'preparing')}
+                            className="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-md shadow-emerald-600/30 transition-all active:scale-95"
+                          >
+                            <ChefHat className="w-3.5 h-3.5" />
+                            <span>Accept & Prepare</span>
+                          </button>
+                          <button
+                            onClick={() => updateOrderStatus(order.orderNumber, 'cancelled')}
+                            className="py-2.5 px-3 bg-rose-950/70 hover:bg-rose-900 border border-rose-500/40 text-rose-300 font-bold text-xs rounded-xl transition-all"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {order.status === 'preparing' && (
+                      <div className="space-y-1.5">
+                        <button
+                          onClick={() => updateOrderStatus(order.orderNumber, 'ready')}
+                          className="w-full py-2.5 px-3 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-md transition-all active:scale-95"
+                        >
+                          <Clock className="w-3.5 h-3.5" />
+                          <span>Mark Ready / Out for Delivery</span>
+                        </button>
+                      </div>
+                    )}
+
+                    {order.status === 'ready' && (
+                      <div className="space-y-1.5">
+                        <button
+                          onClick={() => updateOrderStatus(order.orderNumber, 'completed')}
+                          className="w-full py-2.5 px-3 bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-md transition-all active:scale-95"
+                        >
+                          <ChefHat className="w-3.5 h-3.5" />
+                          <span>Mark Completed / Delivered</span>
+                        </button>
+                      </div>
+                    )}
 
                     {/* Bottom Total Row */}
                     <div className="pt-3 border-t border-white/10 flex items-center justify-between">

@@ -199,6 +199,31 @@ export function deleteSession(token: string): void {
 // Orders
 // -----------------------------------------------------------------------------
 
+/**
+ * Returns everyday sequential order number starting with '0001'.
+ * Checks orders created today (local date) and increments max sequence.
+ */
+export function getNextDailyOrderNumber(): string {
+  const db = loadDatabase();
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  let maxSeq = 0;
+  for (const o of db.orders) {
+    if (o.createdAt && o.createdAt.slice(0, 10) === todayStr) {
+      const match = o.orderNumber.match(/(\d+)$/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxSeq) {
+          maxSeq = num;
+        }
+      }
+    }
+  }
+
+  const nextSeq = maxSeq + 1;
+  return String(nextSeq).padStart(4, '0');
+}
+
 export function saveOrder(order: Order): Order {
   const db = loadDatabase();
   db.orders.unshift(order);

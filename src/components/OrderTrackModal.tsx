@@ -20,11 +20,14 @@ export const OrderTrackModal: React.FC<OrderTrackModalProps> = ({ isOpen, onClos
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!searchQuery.trim()) return;
+    const query = searchQuery.trim().toLowerCase().replace(/^#/, '');
+    if (!query) return;
+
     const found = orders.find(
       (o) =>
-        o.orderNumber.toLowerCase() === searchQuery.trim().toLowerCase() ||
-        o.customerPhone.includes(searchQuery.trim())
+        o.orderNumber.toLowerCase() === query ||
+        o.orderNumber.toLowerCase() === `flw-${query}` ||
+        o.customerPhone.includes(query)
     );
     if (found) {
       setActiveOrder(found);
@@ -35,10 +38,10 @@ export const OrderTrackModal: React.FC<OrderTrackModalProps> = ({ isOpen, onClos
   };
 
   const steps: { key: OrderStatus; label: string; desc: string; icon: any }[] = [
-    { key: 'placed', label: 'Order Received', desc: 'Sent to Gowlidoddy kitchen', icon: Clock },
-    { key: 'preparing', label: 'In the Kitchen', desc: 'Churning thickshakes & warming DBC', icon: ChefHat },
-    { key: 'ready', label: 'Ready / Out', desc: 'Packed and waiting or out for delivery', icon: Package },
-    { key: 'completed', label: 'Completed', desc: 'Dessert freedom delivered!', icon: CheckCircle2 },
+    { key: 'placed', label: 'Order Received', desc: 'Waiting for store acceptance. Preparation begins once confirmed.', icon: Clock },
+    { key: 'preparing', label: 'In the Kitchen', desc: 'Store accepted! Churning thickshakes & warming DBC brownies.', icon: ChefHat },
+    { key: 'ready', label: 'Ready / Out for Delivery', desc: 'Packed and ready for pickup or on the way to you.', icon: Package },
+    { key: 'completed', label: 'Completed & Delivered', desc: 'Dessert freedom delivered! Enjoy 🐾', icon: CheckCircle2 },
   ];
 
   const getStepIndex = (status: OrderStatus) => {
@@ -94,7 +97,7 @@ export const OrderTrackModal: React.FC<OrderTrackModalProps> = ({ isOpen, onClos
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Enter Order # (e.g. FLW-8392) or phone"
+                placeholder="Enter Order # (e.g. 0001) or phone"
                 className="w-full bg-[#18181f] border border-white/10 focus:border-[#ff2626] rounded-xl pl-9 pr-3 py-2 text-xs sm:text-sm text-white placeholder-white/30 focus:outline-none uppercase"
               />
             </div>

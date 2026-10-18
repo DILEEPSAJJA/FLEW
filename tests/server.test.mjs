@@ -334,7 +334,7 @@ describe('FLEW Backend & Security Test Suite', () => {
       const json = res.json();
       assert.equal(json.success, true);
       assert.ok(json.order);
-      assert.match(json.order.orderNumber, /^FLW-\d{4}$/);
+      assert.match(json.order.orderNumber, /^\d{4}$/);
       assert.equal(json.order.customerPhone, '9876543210');
       assert.equal(json.order.status, 'placed');
 

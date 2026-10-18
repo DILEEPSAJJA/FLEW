@@ -264,7 +264,7 @@ export const AdminPinLock: React.FC<AdminPinLockProps> = ({ onUnlock }) => {
             </p>
           ) : (
             <p className="text-[11px] text-white/40 text-center">
-              Default Store PIN: <span className="font-mono text-white/70 font-bold tracking-widest">123789</span>
+              Authorized store staff & management access only.
             </p>
           )}
 
