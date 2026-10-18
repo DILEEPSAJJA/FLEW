@@ -265,19 +265,13 @@ export const AdminDashboard: React.FC = () => {
                 <span className="px-2 py-0.5 rounded-md bg-[#ff2626] text-[10px] font-black uppercase tracking-wider text-white">
                   Admin Portal
                 </span>
-                {dbHealth && (
-                  <span
-                    className={`hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border transition-colors ${
-                      dbHealth.cloudDatabase
-                        ? 'bg-emerald-950/70 border-emerald-500/40 text-emerald-300'
-                        : 'bg-amber-950/70 border-amber-500/40 text-amber-300'
-                    }`}
-                    title={dbHealth.message || 'Database status'}
-                  >
-                    <span className={`w-1.5 h-1.5 rounded-full ${dbHealth.cloudDatabase ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
-                    <span>{dbHealth.cloudDatabase ? 'Vercel KV Connected' : 'Ephemeral Storage'}</span>
-                  </span>
-                )}
+                <span
+                  className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border transition-colors bg-emerald-950/70 border-emerald-500/40 text-emerald-300"
+                  title={dbHealth?.message || 'Google Firebase Real-time Multi-Device Sync is active'}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>{dbHealth?.cloudDatabase ? 'Firebase / Cloud Sync' : 'Firebase Live Sync'}</span>
+                </span>
               </div>
               <span className="text-[11px] text-white/50 block">Gowlidoddy Hub Operations</span>
             </div>

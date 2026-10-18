@@ -110,13 +110,19 @@ export async function syncFromCloud(): Promise<DatabaseSchema> {
   }
 
   try {
-    const res = await fetch(`${creds.url}/get/flew_store_db`, {
-      method: 'GET',
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2500);
+
+    const res = await fetch(creds.url, {
+      method: 'POST',
       headers: {
         Authorization: `Bearer ${creds.token}`,
+        'Content-Type': 'application/json',
       },
-      cache: 'no-store',
+      body: JSON.stringify(['GET', 'flew_store_db']),
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
 
     if (res.ok) {
       const data = await res.json();
@@ -135,7 +141,7 @@ export async function syncFromCloud(): Promise<DatabaseSchema> {
       }
     }
   } catch (err) {
-    console.error('[FLEW DB] Failed to sync from Cloud KV:', err);
+    console.warn('[FLEW DB] Cloud sync skipped, using local storage:', err);
   }
 
   return loadDatabase();
@@ -155,16 +161,21 @@ export async function syncToCloud(data: DatabaseSchema): Promise<void> {
 
   try {
     const serialized = JSON.stringify(data);
-    await fetch(`${creds.url}/set/flew_store_db`, {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+
+    await fetch(creds.url, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${creds.token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(serialized),
+      body: JSON.stringify(['SET', 'flew_store_db', serialized]),
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
   } catch (err) {
-    console.error('[FLEW DB] Failed to save to Cloud KV:', err);
+    console.warn('[FLEW DB] Failed to save to Cloud KV:', err);
   }
 }
 
