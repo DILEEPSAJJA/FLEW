@@ -68,7 +68,7 @@ export async function fetchClientConfig(): Promise<{ widgetId: string; tokenAuth
     const res = await fetch('/api/config');
     if (res.ok) {
       const data = await res.json();
-      const widgetId = envWidgetId || (data.widgetId || '').trim() || '336662446c64373435303732';
+      const widgetId = envWidgetId || (data.widgetId || '').trim() || '366a72663669373338373430';
       const tokenAuth = envTokenAuth || (data.tokenAuth || '').trim();
       cachedConfig = { widgetId, tokenAuth };
       return cachedConfig;
@@ -78,7 +78,7 @@ export async function fetchClientConfig(): Promise<{ widgetId: string; tokenAuth
   }
 
   cachedConfig = {
-    widgetId: envWidgetId || '336662446c64373435303732',
+    widgetId: envWidgetId || '366a72663669373338373430',
     tokenAuth: envTokenAuth,
   };
   return cachedConfig;
