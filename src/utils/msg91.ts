@@ -69,7 +69,7 @@ export async function fetchClientConfig(): Promise<{ widgetId: string; tokenAuth
     if (res.ok) {
       const data = await res.json();
       const widgetId = envWidgetId || (data.widgetId || '').trim() || '366a72663669373338373430';
-      const tokenAuth = envTokenAuth || (data.tokenAuth || '').trim();
+      const tokenAuth = envTokenAuth || (data.tokenAuth || '').trim() || '582635TpBR0JJA9Kq6ad46e2fP1';
       cachedConfig = { widgetId, tokenAuth };
       return cachedConfig;
     }
@@ -79,7 +79,7 @@ export async function fetchClientConfig(): Promise<{ widgetId: string; tokenAuth
 
   cachedConfig = {
     widgetId: envWidgetId || '366a72663669373338373430',
-    tokenAuth: envTokenAuth,
+    tokenAuth: envTokenAuth || '582635TpBR0JJA9Kq6ad46e2fP1',
   };
   return cachedConfig;
 }
