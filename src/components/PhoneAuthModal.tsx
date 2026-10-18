@@ -7,7 +7,8 @@ import {
   sendMsg91Otp, 
   retryMsg91Otp, 
   verifyMsg91Otp, 
-  exchangeTokenWithBackend 
+  exchangeTokenWithBackend,
+  initializeMsg91Widget
 } from '../utils/msg91';
 
 interface PhoneAuthModalProps {
@@ -48,6 +49,11 @@ export const PhoneAuthModal: React.FC<PhoneAuthModalProps> = ({
       setErrorMsg('');
       setInfoMsg('');
       setIsLoading(false);
+
+      // Pre-initialize MSG91 SDK in background
+      initializeMsg91Widget().catch((err) => {
+        console.warn('MSG91 background pre-initialization:', err?.message || err);
+      });
     }
   }, [isOpen]);
 

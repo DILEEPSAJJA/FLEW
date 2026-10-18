@@ -26,6 +26,7 @@ declare global {
       success?: (data: any) => void,
       failure?: (error: any) => void
     ) => void;
+    libLoaded?: boolean;
   }
 }
 
@@ -36,13 +37,52 @@ export interface Msg91Config {
   exposeMethods?: boolean;
   success?: (data: any) => void;
   failure?: (error: any) => void;
+  [key: string]: any;
 }
 
 const MSG91_SCRIPT_URL = 'https://verify.msg91.com/otp-provider.js';
 
 let isScriptLoading = false;
 let isScriptLoaded = false;
-let isInitialized = false;
+let initPromise: Promise<void> | null = null;
+let cachedConfig: { widgetId: string; tokenAuth: string } | null = null;
+
+/**
+ * Fetch client configuration from environment or backend /api/config
+ */
+export async function fetchClientConfig(): Promise<{ widgetId: string; tokenAuth: string }> {
+  if (cachedConfig && cachedConfig.widgetId && cachedConfig.tokenAuth) {
+    return cachedConfig;
+  }
+
+  const envWidgetId = (import.meta.env.VITE_MSG91_WIDGET_ID || '').trim();
+  const envTokenAuth = (import.meta.env.VITE_MSG91_TOKEN_AUTH || '').trim();
+
+  if (envWidgetId && envTokenAuth) {
+    cachedConfig = { widgetId: envWidgetId, tokenAuth: envTokenAuth };
+    return cachedConfig;
+  }
+
+  // Fetch dynamic config from backend /api/config (supports Vercel backend environment variables)
+  try {
+    const res = await fetch('/api/config');
+    if (res.ok) {
+      const data = await res.json();
+      const widgetId = envWidgetId || (data.widgetId || '').trim() || '336662446c64373435303732';
+      const tokenAuth = envTokenAuth || (data.tokenAuth || '').trim();
+      cachedConfig = { widgetId, tokenAuth };
+      return cachedConfig;
+    }
+  } catch (err) {
+    console.warn('Failed to fetch /api/config, falling back to build env:', err);
+  }
+
+  cachedConfig = {
+    widgetId: envWidgetId || '336662446c64373435303732',
+    tokenAuth: envTokenAuth,
+  };
+  return cachedConfig;
+}
 
 /**
  * Dynamically loads the official MSG91 OTP Widget Provider script
@@ -105,37 +145,99 @@ export function loadMsg91Script(): Promise<void> {
 }
 
 /**
- * Initializes the MSG91 OTP widget with custom exposed methods
+ * Initializes the MSG91 OTP widget with custom exposed methods.
+ * Crucial: MSG91's Angular web component boots asynchronously after document append,
+ * so this function polls until window.sendOtp is actually registered.
  */
-export async function initializeMsg91Widget(onGlobalSuccess?: (data: any) => void, onGlobalFailure?: (err: any) => void): Promise<void> {
-  await loadMsg91Script();
+export async function initializeMsg91Widget(
+  onGlobalSuccess?: (data: any) => void,
+  onGlobalFailure?: (err: any) => void
+): Promise<void> {
+  if (typeof window === 'undefined') return;
 
-  if (!window.initSendOTP) {
-    throw new Error('MSG91 initSendOTP is not defined on window.');
+  // If methods are already exposed and ready, resolve immediately
+  if (typeof window.sendOtp === 'function') {
+    return;
   }
 
-  // Fetch client credentials from env or /api/config
-  const widgetId = import.meta.env.VITE_MSG91_WIDGET_ID || '336662446c64373435303732';
-  const tokenAuth = import.meta.env.VITE_MSG91_TOKEN_AUTH || '';
+  // Reuse in-flight initialization promise
+  if (initPromise) {
+    return initPromise;
+  }
 
-  const config: Msg91Config = {
-    widgetId,
-    tokenAuth,
-    exposeMethods: true,
-    success: (data) => {
-      if (onGlobalSuccess) onGlobalSuccess(data);
-    },
-    failure: (error) => {
-      console.error('MSG91 SDK Global Failure:', error);
-      if (onGlobalFailure) onGlobalFailure(error);
-    },
-  };
+  initPromise = (async () => {
+    await loadMsg91Script();
+
+    if (!window.initSendOTP) {
+      throw new Error('MSG91 script loaded but window.initSendOTP is not defined.');
+    }
+
+    const { widgetId, tokenAuth } = await fetchClientConfig();
+
+    if (!widgetId) {
+      throw new Error(
+        'MSG91 Widget ID is missing. Please configure VITE_MSG91_WIDGET_ID in your environment variables.'
+      );
+    }
+
+    if (!tokenAuth) {
+      throw new Error(
+        'MSG91 Token Auth is missing. Please set VITE_MSG91_TOKEN_AUTH (or MSG91_TOKEN_AUTH in Vercel) from MSG91 Dashboard > OTP > OTP Widget > Token.'
+      );
+    }
+
+    const config: Msg91Config = {
+      widgetId,
+      tokenAuth,
+      exposeMethods: true,
+      success: (data) => {
+        console.log('MSG91 SDK Global Success Event:', data);
+        if (onGlobalSuccess) onGlobalSuccess(data);
+      },
+      failure: (error) => {
+        console.error('MSG91 SDK Global Failure Event:', error);
+        if (onGlobalFailure) onGlobalFailure(error);
+      },
+    };
+
+    try {
+      window.initSendOTP(config);
+    } catch (err: any) {
+      console.error('Error invoking window.initSendOTP:', err);
+      throw new Error(`MSG91 initialization failed: ${err?.message || err}`);
+    }
+
+    // Wait asynchronously for MSG91's Angular web component to finish mounting and expose methods
+    await new Promise<void>((resolve, reject) => {
+      if (typeof window.sendOtp === 'function') {
+        return resolve();
+      }
+
+      let elapsed = 0;
+      const interval = 50;
+      const maxTimeout = 10000; // 10 seconds
+
+      const timer = setInterval(() => {
+        elapsed += interval;
+        if (typeof window.sendOtp === 'function') {
+          clearInterval(timer);
+          resolve();
+        } else if (elapsed >= maxTimeout) {
+          clearInterval(timer);
+          reject(
+            new Error(
+              'Timed out waiting for MSG91 SDK to expose custom methods. Please verify that your Widget ID and Token Auth are valid, and verify that your domain is whitelisted in your MSG91 widget settings.'
+            )
+          );
+        }
+      }, interval);
+    });
+  })();
 
   try {
-    window.initSendOTP(config);
-    isInitialized = true;
+    await initPromise;
   } catch (err) {
-    console.error('Error during window.initSendOTP call:', err);
+    initPromise = null; // Reset to allow retry on error
     throw err;
   }
 }
@@ -173,12 +275,13 @@ export function validateIndianMobileNumber(input: string): { valid: boolean; cle
  * Triggers sending SMS OTP via official MSG91 Web SDK
  */
 export async function sendMsg91Otp(phone10Digits: string): Promise<any> {
-  if (!isInitialized) {
+  // Ensure widget is initialized and custom methods are registered on window
+  if (typeof window.sendOtp !== 'function') {
     await initializeMsg91Widget();
   }
 
-  if (!window.sendOtp) {
-    throw new Error('MSG91 SDK window.sendOtp is not available. Ensure exposeMethods is true.');
+  if (typeof window.sendOtp !== 'function') {
+    throw new Error('MSG91 SDK sendOtp method is not available. Please verify your Widget ID and Token Auth.');
   }
 
   // MSG91 identifier format for Indian mobile: 91XXXXXXXXXX (no plus)
@@ -189,10 +292,14 @@ export async function sendMsg91Otp(phone10Digits: string): Promise<any> {
       window.sendOtp!(
         identifier,
         (response) => {
+          console.log('MSG91 sendOtp success response:', response);
           resolve(response);
         },
         (error) => {
-          const errMsg = typeof error === 'string' ? error : error?.message || 'MSG91 failed to send OTP';
+          console.error('MSG91 sendOtp error response:', error);
+          const errMsg = typeof error === 'string' 
+            ? error 
+            : error?.message || error?.error || (typeof error === 'object' ? JSON.stringify(error) : 'MSG91 failed to dispatch OTP');
           reject(new Error(errMsg));
         }
       );
@@ -206,17 +313,27 @@ export async function sendMsg91Otp(phone10Digits: string): Promise<any> {
  * Triggers resending OTP via official MSG91 Web SDK
  */
 export async function retryMsg91Otp(channel: '11' | 'SMS' | null = '11', reqId?: string): Promise<any> {
-  if (!window.retryOtp) {
-    throw new Error('MSG91 SDK window.retryOtp is not available.');
+  if (typeof window.retryOtp !== 'function') {
+    await initializeMsg91Widget();
+  }
+
+  if (typeof window.retryOtp !== 'function') {
+    throw new Error('MSG91 SDK retryOtp method is not available.');
   }
 
   return new Promise((resolve, reject) => {
     try {
       window.retryOtp!(
         channel,
-        (response) => resolve(response),
+        (response) => {
+          console.log('MSG91 retryOtp success response:', response);
+          resolve(response);
+        },
         (error) => {
-          const errMsg = typeof error === 'string' ? error : error?.message || 'MSG91 failed to retry OTP';
+          console.error('MSG91 retryOtp error response:', error);
+          const errMsg = typeof error === 'string' 
+            ? error 
+            : error?.message || error?.error || 'MSG91 failed to retry OTP';
           reject(new Error(errMsg));
         },
         reqId
@@ -231,8 +348,12 @@ export async function retryMsg91Otp(channel: '11' | 'SMS' | null = '11', reqId?:
  * Verifies OTP code with MSG91 Web SDK and extracts the JWT access token
  */
 export async function verifyMsg91Otp(otpCode: string, reqId?: string): Promise<{ accessToken: string; raw: any }> {
-  if (!window.verifyOtp) {
-    throw new Error('MSG91 SDK window.verifyOtp is not available.');
+  if (typeof window.verifyOtp !== 'function') {
+    await initializeMsg91Widget();
+  }
+
+  if (typeof window.verifyOtp !== 'function') {
+    throw new Error('MSG91 SDK verifyOtp method is not available.');
   }
 
   const payload: any = reqId ? { otp: otpCode.trim(), reqId } : otpCode.trim();
@@ -242,6 +363,7 @@ export async function verifyMsg91Otp(otpCode: string, reqId?: string): Promise<{
       window.verifyOtp!(
         payload,
         (data) => {
+          console.log('MSG91 verifyOtp success response:', data);
           // Extract JWT Access Token from MSG91 response
           let token: string | undefined;
 
@@ -257,7 +379,7 @@ export async function verifyMsg91Otp(otpCode: string, reqId?: string): Promise<{
           }
 
           if (!token) {
-            // If data is an object, check any value starting with eyJ (JWT header)
+            // Check any key starting with eyJ
             for (const key of Object.keys(data || {})) {
               if (typeof data[key] === 'string' && data[key].startsWith('eyJ')) {
                 token = data[key];
@@ -273,6 +395,7 @@ export async function verifyMsg91Otp(otpCode: string, reqId?: string): Promise<{
           }
         },
         (error) => {
+          console.error('MSG91 verifyOtp error response:', error);
           const errMsg = typeof error === 'string' ? error : error?.message || 'Invalid OTP code. Please check and try again.';
           reject(new Error(errMsg));
         }

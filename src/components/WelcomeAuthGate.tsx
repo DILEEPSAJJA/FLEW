@@ -7,7 +7,8 @@ import {
   sendMsg91Otp, 
   retryMsg91Otp, 
   verifyMsg91Otp, 
-  exchangeTokenWithBackend 
+  exchangeTokenWithBackend,
+  initializeMsg91Widget
 } from '../utils/msg91';
 
 interface WelcomeAuthGateProps {
@@ -29,6 +30,13 @@ export const WelcomeAuthGate: React.FC<WelcomeAuthGateProps> = ({ onVerified }) 
   const [infoMsg, setInfoMsg] = useState('');
 
   const otpInputsRef = useRef<(HTMLInputElement | null)[]>([]);
+
+  // Pre-initialize MSG91 SDK in background on mount so methods are registered
+  useEffect(() => {
+    initializeMsg91Widget().catch((err) => {
+      console.warn('MSG91 background pre-initialization:', err?.message || err);
+    });
+  }, []);
 
   // Resend countdown timer
   useEffect(() => {
