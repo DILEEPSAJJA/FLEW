@@ -19,11 +19,13 @@ import { CatAssistant } from './components/CatAssistant';
 import { WelcomeAuthGate } from './components/WelcomeAuthGate';
 import { WriteReviewModal } from './components/WriteReviewModal';
 import { AdminDashboard } from './components/admin/AdminDashboard';
+import { AdminPinLock } from './components/admin/AdminPinLock';
 
 function StorefrontApp() {
   const { 
     currentRoute, 
     currentUser,
+    isAdminAuthenticated,
     isAuthModalOpen, 
     setIsAuthModalOpen,
     isOrderTrackModalOpen,
@@ -96,8 +98,11 @@ function StorefrontApp() {
 
   const totalCartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
-  // 1. If Admin route is active (via /#admin), render the dedicated Admin Dashboard!
+  // 1. If Admin route is active (via /#admin), enforce 6-digit PIN before rendering Admin Dashboard!
   if (currentRoute === 'admin') {
+    if (!isAdminAuthenticated) {
+      return <AdminPinLock onUnlock={() => {}} />;
+    }
     return <AdminDashboard />;
   }
 

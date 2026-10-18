@@ -18,7 +18,8 @@ import {
   Download,
   IndianRupee,
   BarChart3,
-  Star
+  Star,
+  Lock
 } from 'lucide-react';
 import { useStore } from '../../context/StoreContext';
 import { MenuItem, OrderStatus } from '../../types';
@@ -29,6 +30,7 @@ import { STORE_INFO } from '../../data/flewData';
 export const AdminDashboard: React.FC = () => {
   const { 
     navigateTo, 
+    logoutAdmin,
     menuItems, 
     orders, 
     updateOrderStatus, 
@@ -278,17 +280,28 @@ export const AdminDashboard: React.FC = () => {
             </div>
           </div>
 
-          {/* Return to Customer Storefront button */}
-          <button
-            onClick={() => navigateTo('customer')}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white font-semibold text-xs sm:text-sm border border-white/15 transition-all shadow-md active:scale-95"
-            title="Open customer view"
-          >
-            <Eye className="w-4 h-4 text-[#ff4444]" />
-            <span className="hidden sm:inline">View Customer Storefront</span>
-            <span className="sm:hidden">Store</span>
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Return to Customer Storefront button */}
+            <button
+              onClick={() => navigateTo('customer')}
+              className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white font-semibold text-xs sm:text-sm border border-white/15 transition-all shadow-md active:scale-95"
+              title="Open customer view"
+            >
+              <Eye className="w-4 h-4 text-[#ff4444]" />
+              <span className="hidden sm:inline">Storefront</span>
+              <span className="sm:hidden">Store</span>
+            </button>
 
+            {/* Lock Admin Portal Button */}
+            <button
+              onClick={() => logoutAdmin()}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 font-semibold text-xs border border-rose-500/30 transition-all shadow-md active:scale-95"
+              title="Lock Admin Portal (Requires 6-Digit PIN)"
+            >
+              <Lock className="w-3.5 h-3.5" />
+              <span>Lock</span>
+            </button>
+          </div>
         </div>
 
         {/* Tab Navigation Navigation */}

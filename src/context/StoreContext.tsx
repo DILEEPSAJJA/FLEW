@@ -55,6 +55,11 @@ interface StoreContextType {
   latestAlert: AlertNotification | null;
   dismissAlert: () => void;
 
+  // Admin PIN Auth (6 digits default 123789)
+  isAdminAuthenticated: boolean;
+  verifyAdminPin: (pin: string) => Promise<{ success: boolean; message?: string }>;
+  logoutAdmin: () => void;
+
   // User Auth & Phone Verification
   currentUser: UserAuth | null;
   verifyUserWithPhone: (phoneNumber: string, name: string, address?: string) => UserAuth;
@@ -338,6 +343,65 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
     return 'customer';
   });
+
+  // Admin authentication state in sessionStorage
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('flew_admin_auth') === 'true';
+    }
+    return false;
+  });
+
+  const verifyAdminPin = async (enteredPin: string): Promise<{ success: boolean; message?: string }> => {
+    const clean = enteredPin.trim();
+    if (clean.length !== 6) {
+      return { success: false, message: 'PIN must be exactly 6 digits.' };
+    }
+
+    try {
+      const res = await fetch('/api/admin/verify-pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin: clean }),
+      });
+      const data = await res.json().catch(() => null);
+
+      if (res.ok && data?.success) {
+        setIsAdminAuthenticated(true);
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('flew_admin_auth', 'true');
+          if (data.adminToken) {
+            sessionStorage.setItem('flew_admin_token', data.adminToken);
+          }
+        }
+        return { success: true };
+      }
+
+      if (data?.message) {
+        return { success: false, message: data.message };
+      }
+    } catch {
+      // Fallback if backend offline
+    }
+
+    if (clean === '123789') {
+      setIsAdminAuthenticated(true);
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('flew_admin_auth', 'true');
+      }
+      return { success: true };
+    }
+
+    return { success: false, message: 'Incorrect 6-digit staff PIN.' };
+  };
+
+  const logoutAdmin = () => {
+    setIsAdminAuthenticated(false);
+    if (typeof window !== 'undefined') {
+      sessionStorage.removeItem('flew_admin_auth');
+      sessionStorage.removeItem('flew_admin_token');
+    }
+  };
 
   const navigateTo = (route: 'customer' | 'admin') => {
     setCurrentRoute(route);
@@ -675,6 +739,28 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setOrders((prev) => [newOrder, ...prev]);
     setActiveOrder(newOrder);
     broadcastMessage({ type: 'NEW_ORDER', order: newOrder });
+
+    // Sync to backend API using verified session token
+    if (typeof window !== 'undefined') {
+      const sessionToken = localStorage.getItem('flew_session_token');
+      if (sessionToken) {
+        fetch('/api/orders/create', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${sessionToken}`,
+          },
+          body: JSON.stringify({
+            customerPhone: orderData.customerPhone,
+            customerName: orderData.customerName,
+            deliveryAddress: orderData.deliveryAddress,
+            orderType: orderData.orderType,
+            items: processedItems,
+          }),
+        }).catch((err) => console.warn('Order sync to backend failed:', err));
+      }
+    }
+
     return newOrder;
   };
 
@@ -692,6 +778,24 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       })
     );
     broadcastMessage({ type: 'STATUS_UPDATED', orderNumber, status });
+
+    // Sync to backend if admin token available
+    if (typeof window !== 'undefined') {
+      const adminToken = sessionStorage.getItem('flew_admin_token');
+      if (adminToken) {
+        fetch('/api/orders/status', {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${adminToken}`,
+          },
+          body: JSON.stringify({
+            orderNumber,
+            status,
+          }),
+        }).catch((err) => console.warn('Status sync to backend failed:', err));
+      }
+    }
   };
 
   // --- Review Actions ---
@@ -746,6 +850,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const logoutUser = () => {
     setCurrentUser(null);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('flew_session_token');
+    }
   };
 
   return (
@@ -753,6 +860,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       value={{
         currentRoute,
         navigateTo,
+        isAdminAuthenticated,
+        verifyAdminPin,
+        logoutAdmin,
         menuItems,
         addNewItem,
         updateItem,
