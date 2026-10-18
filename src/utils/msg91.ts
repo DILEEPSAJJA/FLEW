@@ -312,7 +312,7 @@ export async function sendMsg91Otp(phone10Digits: string): Promise<any> {
 /**
  * Triggers resending OTP via official MSG91 Web SDK
  */
-export async function retryMsg91Otp(channel: '11' | 'SMS' | null = '11', reqId?: string): Promise<any> {
+export async function retryMsg91Otp(channel: string | null = null, reqId?: string): Promise<any> {
   if (typeof window.retryOtp !== 'function') {
     await initializeMsg91Widget();
   }

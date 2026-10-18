@@ -82,8 +82,8 @@ export const WelcomeAuthGate: React.FC<WelcomeAuthGateProps> = ({ onVerified }) 
     }
   };
 
-  // 2. Resend OTP via MSG91 SDK
-  const handleResendOtp = async () => {
+  // 2. Resend OTP via MSG91 SDK (Supports SMS, WhatsApp, Voice)
+  const handleResendOtp = async (channel: string | null = null) => {
     if (resendTimer > 0 || isLoading) return;
 
     setIsLoading(true);
@@ -91,10 +91,11 @@ export const WelcomeAuthGate: React.FC<WelcomeAuthGateProps> = ({ onVerified }) 
     setInfoMsg('');
 
     try {
-      await retryMsg91Otp('11'); // '11' specifies SMS channel
+      await retryMsg91Otp(channel);
       setIsLoading(false);
       setResendTimer(30);
-      setInfoMsg('Fresh OTP code dispatched via SMS.');
+      const channelLabel = channel === '4' ? 'WhatsApp' : channel === '12' ? 'Voice Call' : 'SMS';
+      setInfoMsg(`Fresh OTP code dispatched via ${channelLabel}.`);
     } catch (err: any) {
       setIsLoading(false);
       console.error('MSG91 retryOtp error:', err);
@@ -378,19 +379,47 @@ export const WelcomeAuthGate: React.FC<WelcomeAuthGateProps> = ({ onVerified }) 
 
               {resendTimer > 0 ? (
                 <span className="text-white/40 font-mono text-[11px]">
-                  Resend SMS in {resendTimer}s
+                  Resend in {resendTimer}s
                 </span>
               ) : (
-                <button
-                  type="button"
-                  disabled={isLoading}
-                  onClick={handleResendOtp}
-                  className="text-[#ff4444] font-bold flex items-center gap-1 hover:underline text-[11px]"
-                >
-                  <RefreshCw className="w-3 h-3" />
-                  <span>Resend SMS Code</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={isLoading}
+                    onClick={() => handleResendOtp('11')}
+                    className="text-[#ff4444] font-bold flex items-center gap-1 hover:underline text-[11px]"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    <span>SMS</span>
+                  </button>
+                  <span className="text-white/20">·</span>
+                  <button
+                    type="button"
+                    disabled={isLoading}
+                    onClick={() => handleResendOtp('4')}
+                    className="text-emerald-400 font-bold hover:underline text-[11px]"
+                  >
+                    WhatsApp
+                  </button>
+                  <span className="text-white/20">·</span>
+                  <button
+                    type="button"
+                    disabled={isLoading}
+                    onClick={() => handleResendOtp('12')}
+                    className="text-amber-400 font-bold hover:underline text-[11px]"
+                  >
+                    Voice Call
+                  </button>
+                </div>
               )}
+            </div>
+
+            {/* Helpful troubleshooting notice */}
+            <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/5 text-[11px] text-white/50 text-center space-y-1">
+              <p>Not receiving the SMS? Operators may delay or filter telecom messages.</p>
+              <p className="text-white/30 text-[10px]">
+                Tip: Configure <strong>Demo Credentials</strong> in MSG91 Widget settings or check <strong>MSG91 Logs</strong>.
+              </p>
             </div>
 
             <button
