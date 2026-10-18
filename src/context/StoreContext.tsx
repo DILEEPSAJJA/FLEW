@@ -29,7 +29,7 @@ interface StoreContextType {
     deliveryAddress?: string;
     orderType: 'takeaway' | 'delivery' | 'dine-in';
     items: { item: MenuItem; quantity: number; notes?: string }[];
-  }) => Order;
+  }) => Promise<Order>;
   updateOrderStatus: (orderNumber: string, status: OrderStatus) => void;
   activeOrder: Order | null;
   setActiveOrder: (order: Order | null) => void;
@@ -424,18 +424,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               });
             }
 
-            setOrders((prev) => {
-              const serverMap = new Map(serverOrders.map((o) => [o.orderNumber.replace(/^#/, ''), o]));
-              const updatedList: Order[] = [...serverOrders];
-
-              for (const po of prev) {
-                if (!serverMap.has(po.orderNumber.replace(/^#/, ''))) {
-                  updatedList.push(po);
-                }
-              }
-
-              return updatedList;
-            });
+            setOrders(serverOrders);
 
             setActiveOrder((curr) => {
               const target = curr || (orders.length > 0 ? orders[0] : null);
@@ -604,16 +593,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   // --- Order Actions ---
-  const createOrder = (orderData: {
+  const createOrder = async (orderData: {
     customerPhone: string;
     customerName: string;
     deliveryAddress?: string;
     orderType: 'takeaway' | 'delivery' | 'dine-in';
     items: { item: MenuItem; quantity: number; notes?: string }[];
-  }): Order => {
-    // Everyday sequential order number starting with 0001
-    const orderNumber = generateDailyOrderNumber(orders);
-
+  }): Promise<Order> => {
     const processedItems = orderData.items.map((entry) => ({
       item: entry.item,
       quantity: entry.quantity,
@@ -622,50 +608,37 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       notes: entry.notes,
     }));
 
-    const subtotal = processedItems.reduce((sum, i) => sum + i.lineTotal, 0);
-
-    const newOrder: Order = {
-      orderNumber,
-      customerPhone: orderData.customerPhone,
-      customerName: orderData.customerName || 'Customer',
-      deliveryAddress: orderData.deliveryAddress || '',
-      orderType: orderData.orderType,
-      items: processedItems,
-      subtotal,
-      discountTotal: 0,
-      finalTotal: subtotal,
-      status: 'placed', // Awaiting admin acceptance
-      createdAt: new Date().toISOString(),
-      estimatedMinutes: 20,
-    };
-
-    setOrders((prev) => [newOrder, ...prev]);
-    setActiveOrder(newOrder);
-    broadcastMessage({ type: 'NEW_ORDER', order: newOrder });
-
-    // Sync to backend API (using verified session token if present)
-    if (typeof window !== 'undefined') {
-      const sessionToken = localStorage.getItem('flew_session_token');
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (sessionToken) {
-        headers['Authorization'] = `Bearer ${sessionToken}`;
-      }
-
-      fetch('/api/orders/create', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          orderNumber,
-          customerPhone: orderData.customerPhone,
-          customerName: orderData.customerName,
-          deliveryAddress: orderData.deliveryAddress,
-          orderType: orderData.orderType,
-          items: processedItems,
-        }),
-      }).catch((err) => console.warn('Order sync to backend failed:', err));
+    const sessionToken = typeof window !== 'undefined' ? localStorage.getItem('flew_session_token') : null;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (sessionToken) {
+      headers['Authorization'] = `Bearer ${sessionToken}`;
     }
 
-    return newOrder;
+    const res = await fetch('/api/orders/create', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        customerPhone: orderData.customerPhone,
+        customerName: orderData.customerName,
+        deliveryAddress: orderData.deliveryAddress,
+        orderType: orderData.orderType,
+        items: processedItems,
+      }),
+    });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => null);
+      throw new Error(errData?.message || 'Failed to place order with kitchen.');
+    }
+
+    const data = await res.json();
+    const confirmedOrder: Order = data.order;
+
+    setOrders((prev) => [confirmedOrder, ...prev.filter((o) => o.orderNumber !== confirmedOrder.orderNumber)]);
+    setActiveOrder(confirmedOrder);
+    broadcastMessage({ type: 'NEW_ORDER', order: confirmedOrder });
+
+    return confirmedOrder;
   };
 
   const updateOrderStatus = (orderNumber: string, status: OrderStatus) => {

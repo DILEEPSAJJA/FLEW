@@ -69,6 +69,105 @@ function getInitialDatabase(): DatabaseSchema {
   };
 }
 
+export function getKvCredentials(): { url: string; token: string } | null {
+  const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (url && token) {
+    return { url: url.replace(/\/$/, ''), token };
+  }
+  return null;
+}
+
+export function isCloudDbConfigured(): boolean {
+  return getKvCredentials() !== null;
+}
+
+export function getCloudDbProviderName(): 'vercel_kv' | 'upstash' | 'local_file' {
+  if (process.env.KV_REST_API_URL) return 'vercel_kv';
+  if (process.env.UPSTASH_REDIS_REST_URL) return 'upstash';
+  return 'local_file';
+}
+
+function saveLocalDatabaseFile(data: DatabaseSchema): void {
+  ensureDir(DATA_DIR);
+  try {
+    const serialized = JSON.stringify(data, null, 2);
+    const tempFile = `${DB_FILE}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+    fs.writeFileSync(tempFile, serialized, 'utf-8');
+    fs.renameSync(tempFile, DB_FILE);
+  } catch (err) {
+    console.error('Failed to persist database file:', err);
+  }
+}
+
+/**
+ * Sync fresh database state from Vercel KV / Upstash Redis across all serverless instances
+ */
+export async function syncFromCloud(): Promise<DatabaseSchema> {
+  const creds = getKvCredentials();
+  if (!creds) {
+    return loadDatabase();
+  }
+
+  try {
+    const res = await fetch(`${creds.url}/get/flew_store_db`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${creds.token}`,
+      },
+      cache: 'no-store',
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.result) {
+        const parsed = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
+        if (parsed && typeof parsed === 'object') {
+          dbCache = {
+            users: Array.isArray(parsed.users) ? parsed.users : [],
+            sessions: Array.isArray(parsed.sessions) ? parsed.sessions : [],
+            orders: Array.isArray(parsed.orders) ? parsed.orders : [],
+            rateLimits: parsed.rateLimits && typeof parsed.rateLimits === 'object' ? parsed.rateLimits : {},
+          };
+          saveLocalDatabaseFile(dbCache);
+          return dbCache;
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[FLEW DB] Failed to sync from Cloud KV:', err);
+  }
+
+  return loadDatabase();
+}
+
+/**
+ * Persist database state to Vercel KV / Upstash Redis for global multi-device consistency
+ */
+export async function syncToCloud(data: DatabaseSchema): Promise<void> {
+  dbCache = data;
+  saveLocalDatabaseFile(data);
+
+  const creds = getKvCredentials();
+  if (!creds) {
+    return;
+  }
+
+  try {
+    const serialized = JSON.stringify(data);
+    await fetch(`${creds.url}/set/flew_store_db`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${creds.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(serialized),
+    });
+  } catch (err) {
+    console.error('[FLEW DB] Failed to save to Cloud KV:', err);
+  }
+}
+
 export function loadDatabase(): DatabaseSchema {
   ensureDir(DATA_DIR);
 
@@ -93,21 +192,18 @@ export function loadDatabase(): DatabaseSchema {
   }
 
   dbCache = getInitialDatabase();
-  saveDatabase(dbCache);
+  saveLocalDatabaseFile(dbCache);
   return dbCache;
 }
 
 export function saveDatabase(data: DatabaseSchema): void {
   dbCache = data;
-  ensureDir(DATA_DIR);
+  saveLocalDatabaseFile(data);
 
-  try {
-    const serialized = JSON.stringify(data, null, 2);
-    const tempFile = `${DB_FILE}.${crypto.randomBytes(4).toString('hex')}.tmp`;
-    fs.writeFileSync(tempFile, serialized, 'utf-8');
-    fs.renameSync(tempFile, DB_FILE);
-  } catch (err) {
-    console.error('Failed to persist database file:', err);
+  if (isCloudDbConfigured()) {
+    syncToCloud(data).catch((err) => {
+      console.error('[FLEW DB] Background cloud sync error:', err);
+    });
   }
 }
 

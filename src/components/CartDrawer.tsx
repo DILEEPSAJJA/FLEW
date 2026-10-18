@@ -34,13 +34,14 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   const [orderType, setOrderType] = useState<'takeaway' | 'delivery' | 'dine-in'>('delivery');
   const [deliveryNote, setDeliveryNote] = useState('');
   const [addressError, setAddressError] = useState('');
+  const [isPlacing, setIsPlacing] = useState(false);
 
   if (!isOpen) return null;
 
   const subtotal = items.reduce((acc, curr) => acc + curr.item.price * curr.quantity, 0);
 
   // Direct In-Site Order & Order Number Generation
-  const handlePlaceOrderWithOrderNumber = () => {
+  const handlePlaceOrderWithOrderNumber = async () => {
     if (!currentUser) {
       // Require mobile phone verification with OTP
       setIsAuthModalOpen(true);
@@ -62,32 +63,39 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     }
 
     setAddressError('');
+    setIsPlacing(true);
 
-    // Create official order with sequential order number
-    createOrder({
-      customerPhone: currentUser.formattedPhone,
-      customerName: currentUser.name || 'Customer',
-      deliveryAddress: finalAddress,
-      orderType,
-      items: items.map((i) => ({
-        item: i.item,
-        quantity: i.quantity,
-        notes: i.notes || deliveryNote,
-      })),
-    });
+    try {
+      // Create official order with sequential order number from server
+      await createOrder({
+        customerPhone: currentUser.formattedPhone,
+        customerName: currentUser.name || 'Customer',
+        deliveryAddress: finalAddress,
+        orderType,
+        items: items.map((i) => ({
+          item: i.item,
+          quantity: i.quantity,
+          notes: i.notes || deliveryNote,
+        })),
+      });
 
-    // Confetti celebration
-    confetti({
-      particleCount: 65,
-      spread: 70,
-      origin: { y: 0.6 },
-      colors: ['#ff2626', '#ffffff', '#10b981'],
-    });
+      // Confetti celebration
+      confetti({
+        particleCount: 65,
+        spread: 70,
+        origin: { y: 0.6 },
+        colors: ['#ff2626', '#ffffff', '#10b981'],
+      });
 
-    onClearCart();
-    onClose();
-    // Open live tracker immediately!
-    setIsOrderTrackModalOpen(true);
+      onClearCart();
+      onClose();
+      // Open live tracker immediately!
+      setIsOrderTrackModalOpen(true);
+    } catch (err: any) {
+      setAddressError(err?.message || 'Failed to connect to kitchen. Please try again.');
+    } finally {
+      setIsPlacing(false);
+    }
   };
 
   // WhatsApp order generator
@@ -339,10 +347,20 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               {/* Primary Action: Place Order with Order # */}
               <button
                 onClick={handlePlaceOrderWithOrderNumber}
-                className="w-full py-3.5 px-4 bg-gradient-to-r from-[#ff2626] to-[#dc2626] hover:opacity-95 text-white font-bold text-sm rounded-xl shadow-lg shadow-[#ff2626]/30 flex items-center justify-center gap-2 transition-all active:scale-95"
+                disabled={isPlacing}
+                className="w-full py-3.5 px-4 bg-gradient-to-r from-[#ff2626] to-[#dc2626] hover:opacity-95 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-lg shadow-[#ff2626]/30 flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer"
               >
-                <span>Place Order & Generate Order #</span>
-                <ArrowRight className="w-4 h-4" />
+                {isPlacing ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin inline-block" />
+                    <span>Sending to Kitchen...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Place Order & Generate Order #</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
               </button>
 
               {/* Secondary Options: Swiggy or WhatsApp */}

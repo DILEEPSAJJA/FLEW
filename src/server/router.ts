@@ -7,7 +7,12 @@ import {
   getOrderByNumber, 
   updateOrderStatusInDb, 
   checkAndRecordRateLimit,
-  getNextDailyOrderNumber
+  getNextDailyOrderNumber,
+  syncFromCloud,
+  syncToCloud,
+  isCloudDbConfigured,
+  getCloudDbProviderName,
+  loadDatabase
 } from './db';
 import { 
   authenticateRequest, 
@@ -94,7 +99,29 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
     return false;
   }
 
+  // Synchronize latest database state across all Vercel serverless microVMs
+  await syncFromCloud();
+
   const normalizedPath = pathname.replace(/\/+$/, '');
+
+  // ---------------------------------------------------------------------------
+  // 0. GET /api/health — Real-time Cloud Database & Operations Health Check
+  // ---------------------------------------------------------------------------
+  if (method === 'GET' && normalizedPath === '/api/health') {
+    const isCloud = isCloudDbConfigured();
+    const provider = getCloudDbProviderName();
+    const orders = getAllOrders();
+    sendJson(res, 200, {
+      status: 'ok',
+      cloudDatabase: isCloud,
+      provider,
+      totalOrders: orders.length,
+      message: isCloud 
+        ? `Connected to ${provider.toUpperCase()} persistent cloud database.` 
+        : 'Running in ephemeral container storage. To enable permanent multi-device sync, connect Vercel KV in your Vercel Dashboard.'
+    });
+    return true;
+  }
 
   // ---------------------------------------------------------------------------
   // 1. GET /api/config — Safe Client Configuration
@@ -325,10 +352,8 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
 
     const subtotal = verifiedItems.reduce((sum: number, i: any) => sum + i.lineTotal, 0);
 
-    // Sequential 4-digit order number (starts at 0001 everyday, continues sequentially)
-    const orderNumber = (body.orderNumber && /^\d{4}$/.test(String(body.orderNumber)))
-      ? String(body.orderNumber)
-      : getNextDailyOrderNumber();
+    // Server is the SOLE authority for daily sequential order numbers (starts at 0001 everyday, continues sequentially)
+    const orderNumber = getNextDailyOrderNumber();
 
     // Valid customer delivery address or mode descriptor without fake fallback
     let orderAddress = (body.deliveryAddress || '').trim();
@@ -360,6 +385,7 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
     };
 
     saveOrder(newOrder);
+    await syncToCloud(loadDatabase());
 
     sendJson(res, 201, {
       success: true,
@@ -439,6 +465,8 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
       sendJson(res, 404, { success: false, message: `Order #${cleanOrderNumber} not found` });
       return true;
     }
+
+    await syncToCloud(loadDatabase());
 
     sendJson(res, 200, { success: true, order: updated });
     return true;
