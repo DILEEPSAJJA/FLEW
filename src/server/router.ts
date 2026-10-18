@@ -71,11 +71,15 @@ export function sendJson(res: ServerResponse, statusCode: number, data: any): vo
 
 // Helper to extract client IP for rate limiting
 function getClientIp(req: IncomingMessage): string {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string') {
-    return forwarded.split(',')[0].trim();
+  try {
+    const forwarded = req?.headers ? req.headers['x-forwarded-for'] : undefined;
+    if (typeof forwarded === 'string') {
+      return forwarded.split(',')[0].trim();
+    }
+    return (req?.socket as any)?.remoteAddress || '127.0.0.1';
+  } catch {
+    return '127.0.0.1';
   }
-  return req.socket.remoteAddress || '127.0.0.1';
 }
 
 /**

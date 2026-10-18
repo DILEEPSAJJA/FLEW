@@ -33,31 +33,31 @@ export function signJwtToken(payload: Omit<TokenPayload, 'iat' | 'exp'>, expires
 }
 
 export function verifyJwtToken(token: string, checkDb = true): { valid: boolean; payload?: TokenPayload; error?: string } {
-  if (!token || typeof token !== 'string') {
-    return { valid: false, error: 'No token provided' };
-  }
-
-  const parts = token.split('.');
-  if (parts.length !== 3) {
-    return { valid: false, error: 'Malformed token structure' };
-  }
-
-  const [headerB64, payloadB64, signature] = parts;
-
-  const expectedSignature = crypto
-    .createHmac('sha256', SECRET)
-    .update(`${headerB64}.${payloadB64}`)
-    .digest('base64url');
-
-  // Constant-time comparison
-  const sigBuffer = Buffer.from(signature);
-  const expectedBuffer = Buffer.from(expectedSignature);
-
-  if (sigBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(sigBuffer, expectedBuffer)) {
-    return { valid: false, error: 'Invalid token signature' };
-  }
-
   try {
+    if (!token || typeof token !== 'string') {
+      return { valid: false, error: 'No token provided' };
+    }
+
+    const parts = token.split('.');
+    if (parts.length !== 3) {
+      return { valid: false, error: 'Malformed token structure' };
+    }
+
+    const [headerB64, payloadB64, signature] = parts;
+
+    const expectedSignature = crypto
+      .createHmac('sha256', SECRET)
+      .update(`${headerB64}.${payloadB64}`)
+      .digest('base64url');
+
+    // Constant-time comparison
+    const sigBuffer = Buffer.from(signature);
+    const expectedBuffer = Buffer.from(expectedSignature);
+
+    if (sigBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(sigBuffer, expectedBuffer)) {
+      return { valid: false, error: 'Invalid token signature' };
+    }
+
     const payloadJson = Buffer.from(payloadB64, 'base64url').toString('utf-8');
     const payload: TokenPayload = JSON.parse(payloadJson);
 
@@ -74,8 +74,8 @@ export function verifyJwtToken(token: string, checkDb = true): { valid: boolean;
     }
 
     return { valid: true, payload };
-  } catch (err) {
-    return { valid: false, error: 'Failed to decode token payload' };
+  } catch (err: any) {
+    return { valid: false, error: err?.message || 'Token verification failed' };
   }
 }
 
@@ -122,27 +122,31 @@ export function extractBearerToken(authHeader?: string): string | null {
 }
 
 export function authenticateRequest(req: any): { authenticated: boolean; session?: DbSession; payload?: TokenPayload; error?: string } {
-  const authHeader = req.headers?.authorization || req.headers?.Authorization;
-  const token = extractBearerToken(authHeader);
+  try {
+    const authHeader = req?.headers?.authorization || req?.headers?.Authorization;
+    const token = extractBearerToken(authHeader);
 
-  if (!token) {
-    return { authenticated: false, error: 'Missing Authorization header with Bearer token' };
+    if (!token) {
+      return { authenticated: false, error: 'Missing Authorization header with Bearer token' };
+    }
+
+    const jwtCheck = verifyJwtToken(token);
+    if (!jwtCheck.valid || !jwtCheck.payload) {
+      return { authenticated: false, error: jwtCheck.error || 'Invalid session token' };
+    }
+
+    // Also check database for active non-revoked session
+    const dbSession = findSession(token);
+    if (!dbSession) {
+      return { authenticated: false, error: 'Session was revoked or expired' };
+    }
+
+    return {
+      authenticated: true,
+      session: dbSession,
+      payload: jwtCheck.payload,
+    };
+  } catch (err: any) {
+    return { authenticated: false, error: err?.message || 'Authentication failed' };
   }
-
-  const jwtCheck = verifyJwtToken(token);
-  if (!jwtCheck.valid || !jwtCheck.payload) {
-    return { authenticated: false, error: jwtCheck.error || 'Invalid session token' };
-  }
-
-  // Also check database for active non-revoked session
-  const dbSession = findSession(token);
-  if (!dbSession) {
-    return { authenticated: false, error: 'Session was revoked or expired' };
-  }
-
-  return {
-    authenticated: true,
-    session: dbSession,
-    payload: jwtCheck.payload,
-  };
 }

@@ -396,21 +396,21 @@ function signJwtToken(payload, expiresInDays = 30) {
   return `${headerB64}.${payloadB64}.${signature}`;
 }
 function verifyJwtToken(token, checkDb = true) {
-  if (!token || typeof token !== "string") {
-    return { valid: false, error: "No token provided" };
-  }
-  const parts = token.split(".");
-  if (parts.length !== 3) {
-    return { valid: false, error: "Malformed token structure" };
-  }
-  const [headerB64, payloadB64, signature] = parts;
-  const expectedSignature = crypto2.createHmac("sha256", SECRET).update(`${headerB64}.${payloadB64}`).digest("base64url");
-  const sigBuffer = Buffer.from(signature);
-  const expectedBuffer = Buffer.from(expectedSignature);
-  if (sigBuffer.length !== expectedBuffer.length || !crypto2.timingSafeEqual(sigBuffer, expectedBuffer)) {
-    return { valid: false, error: "Invalid token signature" };
-  }
   try {
+    if (!token || typeof token !== "string") {
+      return { valid: false, error: "No token provided" };
+    }
+    const parts = token.split(".");
+    if (parts.length !== 3) {
+      return { valid: false, error: "Malformed token structure" };
+    }
+    const [headerB64, payloadB64, signature] = parts;
+    const expectedSignature = crypto2.createHmac("sha256", SECRET).update(`${headerB64}.${payloadB64}`).digest("base64url");
+    const sigBuffer = Buffer.from(signature);
+    const expectedBuffer = Buffer.from(expectedSignature);
+    if (sigBuffer.length !== expectedBuffer.length || !crypto2.timingSafeEqual(sigBuffer, expectedBuffer)) {
+      return { valid: false, error: "Invalid token signature" };
+    }
     const payloadJson = Buffer.from(payloadB64, "base64url").toString("utf-8");
     const payload = JSON.parse(payloadJson);
     const nowSec = Math.floor(Date.now() / 1e3);
@@ -425,7 +425,7 @@ function verifyJwtToken(token, checkDb = true) {
     }
     return { valid: true, payload };
   } catch (err) {
-    return { valid: false, error: "Failed to decode token payload" };
+    return { valid: false, error: err?.message || "Token verification failed" };
   }
 }
 function issueCustomerSession(userId, phoneNumber) {
@@ -463,24 +463,28 @@ function extractBearerToken(authHeader) {
   return match ? match[1].trim() : null;
 }
 function authenticateRequest(req) {
-  const authHeader = req.headers?.authorization || req.headers?.Authorization;
-  const token = extractBearerToken(authHeader);
-  if (!token) {
-    return { authenticated: false, error: "Missing Authorization header with Bearer token" };
+  try {
+    const authHeader = req?.headers?.authorization || req?.headers?.Authorization;
+    const token = extractBearerToken(authHeader);
+    if (!token) {
+      return { authenticated: false, error: "Missing Authorization header with Bearer token" };
+    }
+    const jwtCheck = verifyJwtToken(token);
+    if (!jwtCheck.valid || !jwtCheck.payload) {
+      return { authenticated: false, error: jwtCheck.error || "Invalid session token" };
+    }
+    const dbSession = findSession(token);
+    if (!dbSession) {
+      return { authenticated: false, error: "Session was revoked or expired" };
+    }
+    return {
+      authenticated: true,
+      session: dbSession,
+      payload: jwtCheck.payload
+    };
+  } catch (err) {
+    return { authenticated: false, error: err?.message || "Authentication failed" };
   }
-  const jwtCheck = verifyJwtToken(token);
-  if (!jwtCheck.valid || !jwtCheck.payload) {
-    return { authenticated: false, error: jwtCheck.error || "Invalid session token" };
-  }
-  const dbSession = findSession(token);
-  if (!dbSession) {
-    return { authenticated: false, error: "Session was revoked or expired" };
-  }
-  return {
-    authenticated: true,
-    session: dbSession,
-    payload: jwtCheck.payload
-  };
 }
 
 // src/server/msg91.ts
@@ -1014,11 +1018,15 @@ function sendJson(res, statusCode, data) {
   res.end(JSON.stringify(data));
 }
 function getClientIp(req) {
-  const forwarded = req.headers["x-forwarded-for"];
-  if (typeof forwarded === "string") {
-    return forwarded.split(",")[0].trim();
+  try {
+    const forwarded = req?.headers ? req.headers["x-forwarded-for"] : void 0;
+    if (typeof forwarded === "string") {
+      return forwarded.split(",")[0].trim();
+    }
+    return req?.socket?.remoteAddress || "127.0.0.1";
+  } catch {
+    return "127.0.0.1";
   }
-  return req.socket.remoteAddress || "127.0.0.1";
 }
 async function handleApiRequest(req, res) {
   const customReq = req;
@@ -1338,6 +1346,14 @@ async function handleApiRequest(req, res) {
 // src/server/api-entry.ts
 async function handler(req, res) {
   try {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-admin-role");
+    if (req.method === "OPTIONS") {
+      res.statusCode = 204;
+      res.end();
+      return;
+    }
     const handled = await handleApiRequest(req, res);
     if (!handled && !res.writableEnded) {
       res.statusCode = 404;

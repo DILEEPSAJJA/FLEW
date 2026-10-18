@@ -448,7 +448,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       try {
         const adminToken = typeof window !== 'undefined' ? sessionStorage.getItem('flew_admin_token') : null;
         const headers: Record<string, string> = { Accept: 'application/json' };
-        if (adminToken) {
+        if (adminToken && adminToken.length > 20) {
           headers['Authorization'] = `Bearer ${adminToken}`;
         }
 
@@ -502,7 +502,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     pollServerOrders();
-    const interval = setInterval(pollServerOrders, 3000);
+    const interval = setInterval(pollServerOrders, 10000);
 
     return () => {
       isCancelled = true;
@@ -787,6 +787,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const syncOrderTracking = async (orderNumber: string): Promise<Order | null> => {
     const cleanNum = String(orderNumber).trim().replace(/^#/, '');
     if (!cleanNum) return null;
+
+    // 1. Instant check from real-time orders state (synced live via Firebase Firestore)
+    const existing = orders.find((o) => o.orderNumber.replace(/^#/, '') === cleanNum);
+    if (existing) {
+      setActiveOrder(existing);
+      return existing;
+    }
 
     try {
       const res = await fetch(`/api/orders/track?orderNumber=${encodeURIComponent(cleanNum)}`);
