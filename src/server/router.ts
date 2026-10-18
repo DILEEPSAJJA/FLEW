@@ -82,11 +82,29 @@ function getClientIp(req: IncomingMessage): string {
  * Main Centralized API Dispatcher
  */
 export async function handleApiRequest(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
-  const rawUrl = req.url || '';
-  const [pathname, search] = rawUrl.split('?');
-  const method = (req.method || 'GET').toUpperCase();
-  const query = new URLSearchParams(search || '');
+  const customReq = req as any;
+  const rawUrl = (req.headers['x-matched-path'] as string)
+    || (req.headers['x-forwarded-url'] as string)
+    || customReq.originalUrl
+    || req.url
+    || '';
+
+  const [urlPath, search] = rawUrl.split('?');
+  const query = new URLSearchParams(search || (req.url && req.url.includes('?') ? req.url.split('?')[1] : ''));
   const clientIp = getClientIp(req);
+  const method = (req.method || 'GET').toUpperCase();
+
+  // Handle Vercel rewrite parameter (?__route=orders or ?path=orders)
+  const rewriteRoute = query.get('__route') || query.get('path');
+  let pathname = urlPath;
+  if (rewriteRoute) {
+    pathname = '/api/' + rewriteRoute.replace(/^\/+/, '');
+  } else if (pathname === '/api/index' || pathname === '/api') {
+    const rawMatch = req.url ? req.url.split('?')[0] : '';
+    if (rawMatch && rawMatch !== '/api/index' && rawMatch !== '/api') {
+      pathname = rawMatch;
+    }
+  }
 
   // Handle CORS preflight
   if (method === 'OPTIONS') {
@@ -99,8 +117,12 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
     return false;
   }
 
-  // Synchronize latest database state across all Vercel serverless microVMs
-  await syncFromCloud();
+  // Synchronize latest database state safely across all serverless microVMs
+  try {
+    await syncFromCloud();
+  } catch (syncErr) {
+    console.warn('[ROUTER] Cloud sync warning:', syncErr);
+  }
 
   const normalizedPath = pathname.replace(/\/+$/, '');
 

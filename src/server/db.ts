@@ -69,23 +69,27 @@ function getInitialDatabase(): DatabaseSchema {
   };
 }
 
+export const FIRESTORE_PROJECT_ID = process.env.VITE_FIREBASE_PROJECT_ID || 'flew-a31e0';
+export const FIRESTORE_API_KEY = process.env.VITE_FIREBASE_API_KEY || 'AIzaSyD2RGw1ZG9A1j6etsZvFlni_XkEJ0iNkJY';
+const FIRESTORE_STATE_URL = `https://firestore.googleapis.com/v1/projects/${FIRESTORE_PROJECT_ID}/databases/(default)/documents/settings/store_state?key=${FIRESTORE_API_KEY}`;
+
 export function getKvCredentials(): { url: string; token: string } | null {
   const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (url && token) {
+  if (url && token && (url.startsWith('http://') || url.startsWith('https://'))) {
     return { url: url.replace(/\/$/, ''), token };
   }
   return null;
 }
 
 export function isCloudDbConfigured(): boolean {
-  return getKvCredentials() !== null;
+  return true; // Permanently active via Firebase Firestore flew-a31e0
 }
 
-export function getCloudDbProviderName(): 'vercel_kv' | 'upstash' | 'local_file' {
+export function getCloudDbProviderName(): 'firebase_firestore' | 'vercel_kv' | 'upstash' | 'local_file' {
   if (process.env.KV_REST_API_URL) return 'vercel_kv';
   if (process.env.UPSTASH_REDIS_REST_URL) return 'upstash';
-  return 'local_file';
+  return 'firebase_firestore';
 }
 
 function saveLocalDatabaseFile(data: DatabaseSchema): void {
@@ -101,33 +105,30 @@ function saveLocalDatabaseFile(data: DatabaseSchema): void {
 }
 
 /**
- * Sync fresh database state from Vercel KV / Upstash Redis across all serverless instances
+ * Sync fresh database state from Firebase Firestore across all serverless microVMs
  */
 export async function syncFromCloud(): Promise<DatabaseSchema> {
-  const creds = getKvCredentials();
-  if (!creds) {
+  if (process.env.NODE_ENV === 'test') {
     return loadDatabase();
   }
 
+  // 1. Primary: Google Firebase Firestore (Permanently free, multi-device, no credit card required)
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 2500);
 
-    const res = await fetch(creds.url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${creds.token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(['GET', 'flew_store_db']),
+    const res = await fetch(FIRESTORE_STATE_URL, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
       signal: controller.signal,
     });
     clearTimeout(timeout);
 
     if (res.ok) {
       const data = await res.json();
-      if (data && data.result) {
-        const parsed = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
+      const rawJson = data?.fields?.stateJson?.stringValue;
+      if (rawJson) {
+        const parsed = JSON.parse(rawJson);
         if (parsed && typeof parsed === 'object') {
           dbCache = {
             users: Array.isArray(parsed.users) ? parsed.users : [],
@@ -140,42 +141,110 @@ export async function syncFromCloud(): Promise<DatabaseSchema> {
         }
       }
     }
-  } catch (err) {
-    console.warn('[FLEW DB] Cloud sync skipped, using local storage:', err);
+  } catch (fsErr) {
+    console.warn('[FLEW DB] Firestore sync skipped, checking KV/local:', fsErr);
+  }
+
+  // 2. Secondary fallback: Upstash / Vercel KV if available
+  const creds = getKvCredentials();
+  if (creds) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 2000);
+
+      const res = await fetch(creds.url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${creds.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(['GET', 'flew_store_db']),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.result) {
+          const parsed = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
+          if (parsed && typeof parsed === 'object') {
+            dbCache = {
+              users: Array.isArray(parsed.users) ? parsed.users : [],
+              sessions: Array.isArray(parsed.sessions) ? parsed.sessions : [],
+              orders: Array.isArray(parsed.orders) ? parsed.orders : [],
+              rateLimits: parsed.rateLimits && typeof parsed.rateLimits === 'object' ? parsed.rateLimits : {},
+            };
+            saveLocalDatabaseFile(dbCache);
+            return dbCache;
+          }
+        }
+      }
+    } catch (kvErr) {
+      console.warn('[FLEW DB] Upstash KV sync skipped:', kvErr);
+    }
   }
 
   return loadDatabase();
 }
 
 /**
- * Persist database state to Vercel KV / Upstash Redis for global multi-device consistency
+ * Persist database state to Firebase Firestore and Upstash KV for global multi-device consistency
  */
 export async function syncToCloud(data: DatabaseSchema): Promise<void> {
   dbCache = data;
   saveLocalDatabaseFile(data);
 
-  const creds = getKvCredentials();
-  if (!creds) {
+  if (process.env.NODE_ENV === 'test') {
     return;
   }
 
+  const serialized = JSON.stringify(data);
+
+  // 1. Sync to Google Firebase Firestore
   try {
-    const serialized = JSON.stringify(data);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 3000);
 
-    await fetch(creds.url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${creds.token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(['SET', 'flew_store_db', serialized]),
+    await fetch(FIRESTORE_STATE_URL, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fields: {
+          stateJson: {
+            stringValue: serialized,
+          },
+          updatedAt: {
+            stringValue: new Date().toISOString(),
+          },
+        },
+      }),
       signal: controller.signal,
     });
     clearTimeout(timeout);
-  } catch (err) {
-    console.warn('[FLEW DB] Failed to save to Cloud KV:', err);
+  } catch (fsErr) {
+    console.warn('[FLEW DB] Failed to save state to Firestore:', fsErr);
+  }
+
+  // 2. Also sync to Upstash KV if configured
+  const creds = getKvCredentials();
+  if (creds) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 2000);
+
+      await fetch(creds.url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${creds.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(['SET', 'flew_store_db', serialized]),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+    } catch (err) {
+      console.warn('[FLEW DB] Failed to save to Cloud KV:', err);
+    }
   }
 }
 
@@ -315,9 +384,13 @@ export function getNextDailyOrderNumber(): string {
   const todayStr = new Date().toISOString().slice(0, 10);
 
   let maxSeq = 0;
-  for (const o of db.orders) {
-    if (o.createdAt && o.createdAt.slice(0, 10) === todayStr) {
-      const match = o.orderNumber.match(/(\d+)$/);
+  const ordersList = Array.isArray(db.orders) ? db.orders : [];
+  for (const o of ordersList) {
+    if (!o || typeof o !== 'object') continue;
+    const oDate = String(o.createdAt || '').slice(0, 10);
+    if (oDate === todayStr || !oDate) {
+      const oNum = String(o.orderNumber || '');
+      const match = oNum.match(/(\d+)$/);
       if (match) {
         const num = parseInt(match[1], 10);
         if (!isNaN(num) && num > maxSeq) {
@@ -333,7 +406,11 @@ export function getNextDailyOrderNumber(): string {
 
 export function saveOrder(order: Order): Order {
   const db = loadDatabase();
-  const existingIdx = db.orders.findIndex((o) => o.orderNumber.toUpperCase() === order.orderNumber.trim().toUpperCase());
+  if (!Array.isArray(db.orders)) {
+    db.orders = [];
+  }
+  const cleanTarget = String(order?.orderNumber || '').trim().toUpperCase();
+  const existingIdx = db.orders.findIndex((o) => String(o?.orderNumber || '').trim().toUpperCase() === cleanTarget);
   if (existingIdx >= 0) {
     db.orders[existingIdx] = order;
   } else {
@@ -345,27 +422,38 @@ export function saveOrder(order: Order): Order {
 
 export function getAllOrders(filterPhone?: string): Order[] {
   const db = loadDatabase();
+  const list = Array.isArray(db.orders) ? db.orders : [];
   if (!filterPhone) {
-    return db.orders;
+    return list;
   }
   const clean = filterPhone.replace(/[^0-9]/g, '').slice(-10);
-  return db.orders.filter((o) => o.customerPhone.replace(/[^0-9]/g, '').slice(-10) === clean);
+  return list.filter((o) => {
+    if (!o) return false;
+    const oPhone = String(o.customerPhone || '').replace(/[^0-9]/g, '').slice(-10);
+    return oPhone === clean;
+  });
 }
 
 export function getOrderByNumber(orderNumber: string): Order | undefined {
   const db = loadDatabase();
-  const clean = orderNumber.trim().toUpperCase().replace(/^#/, '');
-  return db.orders.find((o) => {
-    const oNum = o.orderNumber.toUpperCase().replace(/^#/, '');
+  const clean = String(orderNumber || '').trim().toUpperCase().replace(/^#/, '');
+  const list = Array.isArray(db.orders) ? db.orders : [];
+  return list.find((o) => {
+    if (!o) return false;
+    const oNum = String(o.orderNumber || '').toUpperCase().replace(/^#/, '');
     return oNum === clean;
   });
 }
 
 export function updateOrderStatusInDb(orderNumber: string, status: OrderStatus): Order | undefined {
   const db = loadDatabase();
-  const clean = orderNumber.trim().toUpperCase().replace(/^#/, '');
+  const clean = String(orderNumber || '').trim().toUpperCase().replace(/^#/, '');
+  if (!Array.isArray(db.orders)) {
+    db.orders = [];
+  }
   const idx = db.orders.findIndex((o) => {
-    const oNum = o.orderNumber.toUpperCase().replace(/^#/, '');
+    if (!o) return false;
+    const oNum = String(o.orderNumber || '').toUpperCase().replace(/^#/, '');
     return oNum === clean;
   });
   if (idx >= 0) {
