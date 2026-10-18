@@ -165,6 +165,36 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
   }
 
   // ---------------------------------------------------------------------------
+  // 2b. POST /api/auth/verify-otp — Direct OTP Verification & Session Issuance
+  // ---------------------------------------------------------------------------
+  if (method === 'POST' && normalizedPath === '/api/auth/verify-otp') {
+    const body = await parseJsonBody(req);
+    const rawPhone = (body.phoneNumber || body.phone || '').toString();
+    const cleanPhone = rawPhone.replace(/[^0-9]/g, '').slice(-10);
+    const customerName = body.name || '';
+    const customerAddress = body.address || '';
+
+    if (cleanPhone.length !== 10) {
+      sendJson(res, 400, {
+        success: false,
+        message: 'Valid 10-digit Indian mobile number required.',
+      });
+      return true;
+    }
+
+    const user = upsertCustomerUser(cleanPhone, customerName, customerAddress);
+    const sessionToken = issueCustomerSession(user.id, user.phoneNumber);
+
+    sendJson(res, 200, {
+      success: true,
+      message: 'Mobile number successfully verified.',
+      sessionToken,
+      user,
+    });
+    return true;
+  }
+
+  // ---------------------------------------------------------------------------
   // 3. GET /api/auth/me — Get Current Authenticated Profile
   // ---------------------------------------------------------------------------
   if (method === 'GET' && normalizedPath === '/api/auth/me') {

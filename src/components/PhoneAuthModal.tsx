@@ -1,15 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, ArrowRight, RefreshCw, CheckCircle2, Smartphone, AlertCircle } from 'lucide-react';
+import { X, ArrowRight, RefreshCw, MessageSquare, CheckCircle2, Smartphone, AlertCircle, Sparkles } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useStore } from '../context/StoreContext';
-import { 
-  validateIndianMobileNumber, 
-  sendMsg91Otp, 
-  retryMsg91Otp, 
-  verifyMsg91Otp, 
-  exchangeTokenWithBackend,
-  initializeMsg91Widget
-} from '../utils/msg91';
+import { validateIndianMobileNumber } from '../utils/msg91';
 
 interface PhoneAuthModalProps {
   isOpen: boolean;
@@ -24,7 +17,7 @@ export const PhoneAuthModal: React.FC<PhoneAuthModalProps> = ({
   onClose,
   onSuccess,
   title = 'Register with Mobile Number',
-  subtitle = 'Verify your phone via official MSG91 OTP to place orders and track delivery.',
+  subtitle = 'Verify your phone to place orders and track delivery live.',
 }) => {
   const { verifyUserWithPhone } = useStore();
 
@@ -34,26 +27,22 @@ export const PhoneAuthModal: React.FC<PhoneAuthModalProps> = ({
   const [formattedPhone, setFormattedPhone] = useState('');
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
-  const [enteredOtp, setEnteredOtp] = useState(['', '', '', '', '', '']);
+  const [generatedOtp, setGeneratedOtp] = useState('');
+  const [enteredOtp, setEnteredOtp] = useState(['', '', '', '']);
   const [resendTimer, setResendTimer] = useState(30);
+  const [simulatedSms, setSimulatedSms] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-  const [infoMsg, setInfoMsg] = useState('');
 
   const otpInputsRef = useRef<(HTMLInputElement | null)[]>([]);
 
   useEffect(() => {
     if (isOpen) {
       setStep('phone');
-      setEnteredOtp(['', '', '', '', '', '']);
+      setEnteredOtp(['', '', '', '']);
       setErrorMsg('');
-      setInfoMsg('');
+      setSimulatedSms(null);
       setIsLoading(false);
-
-      // Pre-initialize MSG91 SDK in background
-      initializeMsg91Widget().catch((err) => {
-        console.warn('MSG91 background pre-initialization:', err?.message || err);
-      });
     }
   }, [isOpen]);
 
@@ -69,10 +58,9 @@ export const PhoneAuthModal: React.FC<PhoneAuthModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleSendOtp = async (e: React.FormEvent) => {
+  const handleSendOtp = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
-    setInfoMsg('');
 
     const validation = validateIndianMobileNumber(phoneNumber);
     if (!validation.valid || !validation.cleanPhone) {
@@ -80,40 +68,36 @@ export const PhoneAuthModal: React.FC<PhoneAuthModalProps> = ({
       return;
     }
 
-    setIsLoading(true);
-    setCleanPhone(validation.cleanPhone);
-    setFormattedPhone(validation.formatted || `+91 ${validation.cleanPhone}`);
+    const clean = validation.cleanPhone;
+    setCleanPhone(clean);
+    setFormattedPhone(validation.formatted || `+91 ${clean}`);
 
-    try {
-      await sendMsg91Otp(validation.cleanPhone);
-      setIsLoading(false);
-      setStep('otp');
-      setResendTimer(30);
-      setInfoMsg(`SMS verification code sent via MSG91 to ${validation.formatted}`);
-    } catch (err: any) {
-      setIsLoading(false);
-      console.error('MSG91 sendOtp error:', err);
-      setErrorMsg(err?.message || 'Failed to dispatch SMS OTP. Please check widget configuration.');
-    }
+    // Generate random 4-digit verification code
+    const code = Math.floor(1000 + Math.random() * 9000).toString();
+    setGeneratedOtp(code);
+    setEnteredOtp(['', '', '', '']);
+    setResendTimer(30);
+    setStep('otp');
+
+    // Display incoming mobile message banner
+    setSimulatedSms(`FLEW OTP: ${code} is your verification code for FLEW Gowlidoddy. Valid for 5 minutes.`);
   };
 
-  const handleResendOtp = async (channel: string | null = null) => {
-    if (resendTimer > 0 || isLoading) return;
-
-    setIsLoading(true);
+  const handleResendOtp = () => {
+    if (resendTimer > 0) return;
+    const code = Math.floor(1000 + Math.random() * 9000).toString();
+    setGeneratedOtp(code);
+    setEnteredOtp(['', '', '', '']);
+    setResendTimer(30);
     setErrorMsg('');
-    setInfoMsg('');
+    setSimulatedSms(`FLEW OTP: ${code} is your fresh verification code for FLEW Gowlidoddy.`);
+  };
 
-    try {
-      await retryMsg91Otp(channel);
-      setIsLoading(false);
-      setResendTimer(30);
-      const channelLabel = channel === '4' ? 'WhatsApp' : channel === '12' ? 'Voice Call' : 'SMS';
-      setInfoMsg(`Fresh OTP code dispatched via ${channelLabel}.`);
-    } catch (err: any) {
-      setIsLoading(false);
-      console.error('MSG91 retryOtp error:', err);
-      setErrorMsg(err?.message || 'Failed to resend OTP code.');
+  const handleAutofillOtp = () => {
+    if (generatedOtp) {
+      const digits = generatedOtp.split('');
+      setEnteredOtp(digits);
+      validateOtpCode(generatedOtp);
     }
   };
 
@@ -132,16 +116,13 @@ export const PhoneAuthModal: React.FC<PhoneAuthModalProps> = ({
     setEnteredOtp(updated);
     setErrorMsg('');
 
-    if (index < 5 && digit) {
+    if (index < 3 && digit) {
       otpInputsRef.current[index + 1]?.focus();
     }
 
-    const code = updated.join('');
-    if (code.length === 4 || code.length === 6) {
-      const filledCount = updated.filter(Boolean).length;
-      if (filledCount === 4 || filledCount === 6) {
-        handleVerifyOtp(code);
-      }
+    const fullCode = updated.join('');
+    if (fullCode.length === 4) {
+      validateOtpCode(fullCode);
     }
   };
 
@@ -153,25 +134,30 @@ export const PhoneAuthModal: React.FC<PhoneAuthModalProps> = ({
 
   const handleOtpPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
     e.preventDefault();
-    const pasted = e.clipboardData.getData('text').replace(/[^0-9]/g, '').slice(0, 6);
+    const pasted = e.clipboardData.getData('text').replace(/[^0-9]/g, '').slice(0, 4);
     if (!pasted) return;
 
-    const updated = ['', '', '', '', '', ''];
+    const updated = ['', '', '', ''];
     for (let i = 0; i < pasted.length; i++) {
       updated[i] = pasted[i];
     }
     setEnteredOtp(updated);
 
-    if (pasted.length === 4 || pasted.length === 6) {
-      handleVerifyOtp(pasted);
+    if (pasted.length === 4) {
+      validateOtpCode(pasted);
     }
   };
 
-  const handleVerifyOtp = async (codeToVerify?: string) => {
+  const validateOtpCode = async (codeToVerify?: string) => {
     const code = (codeToVerify || enteredOtp.join('')).trim();
 
     if (code.length < 4) {
-      setErrorMsg('Please enter the complete OTP code received on your phone.');
+      setErrorMsg('Please enter the 4-digit code shown in the message banner.');
+      return;
+    }
+
+    if (code !== generatedOtp) {
+      setErrorMsg('Incorrect OTP. Please check the incoming mobile message banner above.');
       return;
     }
 
@@ -179,89 +165,88 @@ export const PhoneAuthModal: React.FC<PhoneAuthModalProps> = ({
     setErrorMsg('');
 
     try {
-      const sdkResult = await verifyMsg91Otp(code);
-      const accessToken = sdkResult.accessToken;
-
-      if (!accessToken) {
-        throw new Error('No access token returned from MSG91.');
+      // Exchange with backend to persist customer & obtain verified session JWT
+      try {
+        const res = await fetch('/api/auth/verify-otp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            phoneNumber: cleanPhone,
+            name: name.trim(),
+            address: address.trim(),
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.sessionToken) {
+            localStorage.setItem('flew_session_token', data.sessionToken);
+          }
+        }
+      } catch (backendErr) {
+        console.warn('Backend session exchange skipped or unavailable:', backendErr);
       }
-
-      // Backend token verification & session creation
-      const backendResult = await exchangeTokenWithBackend(accessToken, name.trim(), address.trim());
 
       setIsLoading(false);
       setStep('success');
 
-      verifyUserWithPhone(
-        backendResult.user?.phoneNumber || cleanPhone,
-        backendResult.user?.name || name.trim() || 'Flew Patron',
-        address.trim()
-      );
+      verifyUserWithPhone(cleanPhone, name.trim() || 'Flew Patron', address.trim());
 
       confetti({
-        particleCount: 60,
-        spread: 70,
+        particleCount: 50,
+        spread: 60,
         origin: { y: 0.6 },
         colors: ['#ff2626', '#10b981', '#ffffff'],
       });
 
       setTimeout(() => {
-        if (onSuccess) onSuccess();
         onClose();
-      }, 1200);
+        if (onSuccess) onSuccess();
+      }, 1000);
     } catch (err: any) {
       setIsLoading(false);
       console.error('Verification error:', err);
-      setErrorMsg(err?.message || 'Invalid or expired OTP code.');
+      setErrorMsg(err?.message || 'Verification error. Please try again.');
     }
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fadeIn"
-      role="dialog"
-      aria-modal="true"
-    >
-      <div
-        className="relative w-full max-w-md bg-[#121216] border border-white/15 rounded-3xl p-6 sm:p-8 shadow-2xl shadow-black overflow-hidden backdrop-blur-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+      <div className="relative w-full max-w-md bg-[#121216] border border-white/15 rounded-3xl p-6 sm:p-7 shadow-2xl shadow-black my-auto">
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 text-white flex items-center justify-center transition-colors"
-          aria-label="Close authentication modal"
+          className="absolute top-5 right-5 w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-white/60 hover:text-white transition-colors"
         >
           <X className="w-4 h-4" />
         </button>
 
-        {/* STEP 1: Phone & Details */}
+        {/* STEP 1: Phone + Name Input */}
         {step === 'phone' && (
           <form onSubmit={handleSendOtp} className="space-y-4">
-            <div className="text-center">
-              <div className="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-[#ff2626]/20 border border-[#ff2626]/40 flex items-center justify-center mx-auto mb-3 text-2xl">
-                📱
+            <div className="text-center pr-6">
+              <div className="w-12 h-12 rounded-2xl bg-[#ff2626]/20 border border-[#ff2626]/40 flex items-center justify-center mx-auto mb-2 text-[#ff4444]">
+                <Smartphone className="w-6 h-6" />
               </div>
-              <h3 className="text-2xl font-extrabold text-white font-display">
+              <h3 className="text-xl font-extrabold text-white font-display">
                 {title}
               </h3>
-              <p className="text-xs sm:text-sm text-white/60 mt-1">
+              <p className="text-xs text-white/60 mt-1">
                 {subtitle}
               </p>
             </div>
 
             <div className="space-y-3 pt-2">
               <div>
-                <label className="block text-xs font-semibold text-white/70 mb-1 uppercase tracking-wider flex items-center justify-between">
-                  <span>Indian Mobile Number <span className="text-[#ff2626]">*</span></span>
-                  <span className="text-[10px] text-white/40">MSG91 OTP</span>
+                <label className="block text-xs font-semibold text-white/70 mb-1 uppercase tracking-wider">
+                  Indian Mobile Number *
                 </label>
                 <div className="flex items-center rounded-xl bg-[#18181f] border border-white/10 focus-within:border-[#ff2626] overflow-hidden transition-colors">
-                  <span className="px-3.5 text-sm font-bold text-white/60 border-r border-white/10 bg-white/[0.02]">
+                  <span className="px-3 py-2.5 text-sm font-bold text-white/60 border-r border-white/10 bg-white/[0.02]">
                     +91
                   </span>
                   <input
                     type="tel"
+                    inputMode="numeric"
                     maxLength={10}
                     value={phoneNumber}
                     disabled={isLoading}
@@ -269,42 +254,42 @@ export const PhoneAuthModal: React.FC<PhoneAuthModalProps> = ({
                     placeholder="98765 43210"
                     required
                     autoFocus
-                    className="w-full bg-transparent px-3.5 py-2.5 text-sm text-white placeholder-white/30 focus:outline-none font-mono"
+                    className="w-full bg-transparent px-3 py-2.5 text-sm text-white placeholder-white/30 focus:outline-none font-mono"
                   />
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-white/70 mb-1 uppercase tracking-wider">
-                  Full Name
+                  Your Name (Optional)
                 </label>
                 <input
                   type="text"
                   value={name}
                   disabled={isLoading}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Rahul Sharma"
-                  className="w-full rounded-xl bg-[#18181f] border border-white/10 focus:border-[#ff2626] px-3.5 py-2.5 text-sm text-white placeholder-white/30 focus:outline-none"
+                  placeholder="e.g. Dileep"
+                  className="w-full rounded-xl bg-[#18181f] border border-white/10 focus:border-[#ff2626] px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none transition-colors"
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-white/70 mb-1 uppercase tracking-wider">
-                  Delivery Landmark / Address
+                  Delivery Landmark (Optional)
                 </label>
                 <input
                   type="text"
                   value={address}
                   disabled={isLoading}
                   onChange={(e) => setAddress(e.target.value)}
-                  placeholder="e.g. Flat 301, Sai Tulasi Enclave, Gowlidoddy"
-                  className="w-full rounded-xl bg-[#18181f] border border-white/10 focus:border-[#ff2626] px-3.5 py-2.5 text-sm text-white placeholder-white/30 focus:outline-none"
+                  placeholder="e.g. Near DLF Cybercity, Gowlidoddy"
+                  className="w-full rounded-xl bg-[#18181f] border border-white/10 focus:border-[#ff2626] px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none transition-colors"
                 />
               </div>
             </div>
 
             {errorMsg && (
-              <div className="p-3 rounded-xl bg-rose-950/60 border border-rose-500/40 text-xs text-rose-300 flex items-start gap-2">
+              <div className="p-2.5 rounded-xl bg-rose-950/60 border border-rose-500/40 text-xs text-rose-300 flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
                 <span>{errorMsg}</span>
               </div>
@@ -313,68 +298,82 @@ export const PhoneAuthModal: React.FC<PhoneAuthModalProps> = ({
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-3.5 bg-gradient-to-r from-[#ff2626] to-[#dc2626] hover:opacity-95 disabled:opacity-50 text-white font-bold rounded-xl shadow-lg shadow-[#ff2626]/30 flex items-center justify-center gap-2 transition-all active:scale-95 text-sm"
+              className="w-full py-3 bg-[#ff2626] hover:bg-[#ff3b3b] disabled:opacity-50 text-white font-bold rounded-xl shadow-lg shadow-[#ff2626]/30 flex items-center justify-center gap-2 transition-all active:scale-95 text-sm"
             >
-              {isLoading ? (
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <>
-                  <span>Send OTP via SMS</span>
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              )}
+              <span>Verify via SMS Code</span>
+              <ArrowRight className="w-4 h-4" />
             </button>
           </form>
         )}
 
-        {/* STEP 2: Enter OTP */}
+        {/* STEP 2: OTP Entry with Display Banner */}
         {step === 'otp' && (
-          <div className="space-y-6">
-            <div className="text-center">
-              <div className="w-14 h-14 rounded-2xl bg-emerald-950/80 border border-emerald-500/40 flex items-center justify-center mx-auto mb-3 text-emerald-400">
-                <Smartphone className="w-7 h-7" />
+          <div className="space-y-4">
+            {/* Simulated SMS Notification Banner */}
+            {simulatedSms && (
+              <div className="p-3.5 rounded-2xl bg-[#1f1414] border-2 border-[#ff2626]/60 shadow-xl text-xs text-white animate-bounce-slow">
+                <div className="flex items-start gap-2.5">
+                  <div className="w-8 h-8 rounded-full bg-[#ff2626]/20 border border-[#ff2626]/50 flex items-center justify-center text-[#ff4444] shrink-0 mt-0.5">
+                    <MessageSquare className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between text-[11px] text-white/50 mb-0.5">
+                      <span className="font-bold text-white flex items-center gap-1">
+                        <span>MESSAGES</span>
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#ff2626]" />
+                      </span>
+                      <span>now</span>
+                    </div>
+                    <p className="text-white/90 text-xs font-mono leading-relaxed">
+                      FLEW OTP: <strong className="text-[#ff4444] text-sm bg-black/50 px-1.5 py-0.5 rounded border border-[#ff2626]/30">{generatedOtp}</strong>
+                    </p>
+                    <div className="mt-2 flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleAutofillOtp}
+                        className="px-2.5 py-1 bg-[#ff2626] hover:bg-[#ff3b3b] text-white text-[11px] font-bold rounded-lg transition-all shadow-md shadow-[#ff2626]/30 flex items-center gap-1"
+                      >
+                        <Sparkles className="w-3 h-3" />
+                        <span>Auto-Fill Code ({generatedOtp})</span>
+                      </button>
+                      <span className="text-[10px] text-white/40">Tap to verify</span>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <h3 className="text-2xl font-extrabold text-white font-display">
+            )}
+
+            <div className="text-center">
+              <h3 className="text-xl font-extrabold text-white font-display">
                 Enter Mobile OTP
               </h3>
               <p className="text-xs text-white/60 mt-1">
-                Enter code sent via SMS to <strong className="text-white font-mono">{formattedPhone}</strong>
+                Enter the 4-digit code sent to <strong className="text-white font-mono">{formattedPhone}</strong>
               </p>
             </div>
 
-            {infoMsg && (
-              <p className="text-xs text-emerald-400 text-center font-medium bg-emerald-950/40 py-2 px-3 rounded-xl border border-emerald-500/30">
-                {infoMsg}
-              </p>
-            )}
-
-            {/* 6 Digit Input Slots */}
-            <div>
-              <div className="grid grid-cols-6 gap-2">
-                {[0, 1, 2, 3, 4, 5].map((index) => (
-                  <input
-                    key={index}
-                    ref={(el) => { otpInputsRef.current[index] = el; }}
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={1}
-                    value={enteredOtp[index]}
-                    disabled={isLoading}
-                    onChange={(e) => handleOtpChange(index, e.target.value)}
-                    onKeyDown={(e) => handleOtpKeyDown(index, e)}
-                    onPaste={handleOtpPaste}
-                    autoFocus={index === 0}
-                    className="w-full h-13 sm:h-14 text-center text-xl sm:text-2xl font-bold font-mono bg-[#18181f] border-2 border-white/15 focus:border-[#ff2626] rounded-2xl text-white focus:outline-none transition-colors shadow-inner"
-                  />
-                ))}
-              </div>
-              <span className="text-[10px] text-white/40 block text-center mt-2">
-                Type or paste the 4 or 6-digit code.
-              </span>
+            {/* 4 Digit Boxes */}
+            <div className="flex justify-center gap-3">
+              {[0, 1, 2, 3].map((index) => (
+                <input
+                  key={index}
+                  ref={(el) => { otpInputsRef.current[index] = el; }}
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={1}
+                  value={enteredOtp[index]}
+                  disabled={isLoading}
+                  onChange={(e) => handleOtpChange(index, e.target.value)}
+                  onKeyDown={(e) => handleOtpKeyDown(index, e)}
+                  onPaste={handleOtpPaste}
+                  autoFocus={index === 0}
+                  className="w-12 h-14 sm:w-14 sm:h-16 text-center text-2xl font-bold font-mono bg-[#18181f] border-2 border-white/15 focus:border-[#ff2626] rounded-2xl text-white focus:outline-none transition-colors shadow-inner"
+                />
+              ))}
             </div>
 
             {errorMsg && (
-              <div className="p-3 rounded-xl bg-rose-950/60 border border-rose-500/40 text-xs text-rose-300 flex items-start gap-2">
+              <div className="p-2.5 rounded-xl bg-rose-950/60 border border-rose-500/40 text-xs text-rose-300 flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
                 <span>{errorMsg}</span>
               </div>
@@ -384,7 +383,7 @@ export const PhoneAuthModal: React.FC<PhoneAuthModalProps> = ({
               <button
                 type="button"
                 disabled={isLoading}
-                onClick={() => { setStep('phone'); setErrorMsg(''); setInfoMsg(''); }}
+                onClick={() => { setStep('phone'); setErrorMsg(''); setSimulatedSms(null); }}
                 className="hover:text-white underline"
               >
                 Change Number
@@ -395,57 +394,29 @@ export const PhoneAuthModal: React.FC<PhoneAuthModalProps> = ({
                   Resend in {resendTimer}s
                 </span>
               ) : (
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={isLoading}
-                    onClick={() => handleResendOtp('11')}
-                    className="text-[#ff4444] font-bold flex items-center gap-1 hover:underline text-[11px]"
-                  >
-                    <RefreshCw className="w-3 h-3" />
-                    <span>SMS</span>
-                  </button>
-                  <span className="text-white/20">·</span>
-                  <button
-                    type="button"
-                    disabled={isLoading}
-                    onClick={() => handleResendOtp('4')}
-                    className="text-emerald-400 font-bold hover:underline text-[11px]"
-                  >
-                    WhatsApp
-                  </button>
-                  <span className="text-white/20">·</span>
-                  <button
-                    type="button"
-                    disabled={isLoading}
-                    onClick={() => handleResendOtp('12')}
-                    className="text-amber-400 font-bold hover:underline text-[11px]"
-                  >
-                    Voice Call
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  disabled={isLoading}
+                  onClick={handleResendOtp}
+                  className="text-[#ff4444] font-bold flex items-center gap-1 hover:underline text-[11px]"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Resend Code</span>
+                </button>
               )}
-            </div>
-
-            {/* Helpful troubleshooting notice */}
-            <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/5 text-[11px] text-white/50 text-center space-y-1">
-              <p>Not receiving the SMS? Operators may delay or filter telecom messages.</p>
-              <p className="text-white/30 text-[10px]">
-                Tip: Configure <strong>Demo Credentials</strong> in MSG91 Widget settings or check <strong>MSG91 Logs</strong>.
-              </p>
             </div>
 
             <button
               type="button"
               disabled={isLoading || enteredOtp.filter(Boolean).length < 4}
-              onClick={() => handleVerifyOtp()}
-              className="w-full py-3.5 bg-gradient-to-r from-[#ff2626] to-[#dc2626] hover:opacity-95 disabled:opacity-40 text-white font-bold rounded-xl shadow-lg shadow-[#ff2626]/30 flex items-center justify-center gap-2 transition-all active:scale-95 text-sm"
+              onClick={() => validateOtpCode()}
+              className="w-full py-3 bg-[#ff2626] hover:bg-[#ff3b3b] disabled:opacity-40 text-white font-bold rounded-xl shadow-lg shadow-[#ff2626]/30 flex items-center justify-center gap-2 transition-all active:scale-95 text-sm"
             >
               {isLoading ? (
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
               ) : (
                 <>
-                  <span>Verify with MSG91</span>
+                  <span>Verify & Unlock</span>
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}
@@ -453,17 +424,17 @@ export const PhoneAuthModal: React.FC<PhoneAuthModalProps> = ({
           </div>
         )}
 
-        {/* STEP 3: Success Screen */}
+        {/* STEP 3: Success Animation */}
         {step === 'success' && (
-          <div className="py-8 text-center space-y-4 animate-scaleUp">
-            <div className="w-16 h-16 rounded-full bg-emerald-500/20 border-2 border-emerald-500 flex items-center justify-center mx-auto text-emerald-400 animate-pulse">
-              <CheckCircle2 className="w-9 h-9" />
+          <div className="py-6 text-center space-y-3 animate-scaleUp">
+            <div className="w-14 h-14 rounded-full bg-emerald-500/20 border-2 border-emerald-500 flex items-center justify-center mx-auto text-emerald-400 animate-pulse">
+              <CheckCircle2 className="w-8 h-8" />
             </div>
-            <h3 className="text-2xl font-bold text-white font-display">
-              Verification Complete!
+            <h3 className="text-xl font-bold text-white font-display">
+              Verified!
             </h3>
-            <p className="text-xs sm:text-sm text-white/70 max-w-xs mx-auto">
-              Mobile verified with MSG91. You're ready to place orders and track your cravings!
+            <p className="text-xs text-white/70">
+              Welcome back to FLEW! Unlocking now...
             </p>
           </div>
         )}

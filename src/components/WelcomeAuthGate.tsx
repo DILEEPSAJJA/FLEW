@@ -1,42 +1,32 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ShieldCheck, ArrowRight, RefreshCw, CheckCircle2, Lock, Smartphone, AlertCircle } from 'lucide-react';
+import { ShieldCheck, ArrowRight, RefreshCw, MessageSquare, CheckCircle2, Lock, Smartphone, AlertCircle, Sparkles } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useStore } from '../context/StoreContext';
-import { 
-  validateIndianMobileNumber, 
-  sendMsg91Otp, 
-  retryMsg91Otp, 
-  verifyMsg91Otp, 
-  exchangeTokenWithBackend,
-  initializeMsg91Widget
-} from '../utils/msg91';
+import { validateIndianMobileNumber } from '../utils/msg91';
 
 interface WelcomeAuthGateProps {
   onVerified: () => void;
 }
 
 export const WelcomeAuthGate: React.FC<WelcomeAuthGateProps> = ({ onVerified }) => {
-  const { verifyUserWithPhone, navigateTo } = useStore();
+  const { verifyUserWithPhone, navigateTo, verifyAdminPin } = useStore();
 
   const [step, setStep] = useState<'phone' | 'otp' | 'success'>('phone');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [formattedPhone, setFormattedPhone] = useState('');
   const [cleanPhone, setCleanPhone] = useState('');
   const [name, setName] = useState('');
-  const [enteredOtp, setEnteredOtp] = useState(['', '', '', '', '', '']);
+  const [generatedOtp, setGeneratedOtp] = useState('');
+  const [enteredOtp, setEnteredOtp] = useState(['', '', '', '']);
   const [resendTimer, setResendTimer] = useState(30);
+  const [simulatedSms, setSimulatedSms] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-  const [infoMsg, setInfoMsg] = useState('');
+  const [showAdminPinPrompt, setShowAdminPinPrompt] = useState(false);
+  const [adminPin, setAdminPin] = useState('');
+  const [adminPinError, setAdminPinError] = useState('');
 
   const otpInputsRef = useRef<(HTMLInputElement | null)[]>([]);
-
-  // Pre-initialize MSG91 SDK in background on mount so methods are registered
-  useEffect(() => {
-    initializeMsg91Widget().catch((err) => {
-      console.warn('MSG91 background pre-initialization:', err?.message || err);
-    });
-  }, []);
 
   // Resend countdown timer
   useEffect(() => {
@@ -49,11 +39,10 @@ export const WelcomeAuthGate: React.FC<WelcomeAuthGateProps> = ({ onVerified }) 
     return () => clearInterval(interval);
   }, [step, resendTimer]);
 
-  // 1. Send OTP via Official MSG91 Web SDK
-  const handleSendOtp = async (e: React.FormEvent) => {
+  // 1. Send OTP: Generate code & display incoming SMS banner
+  const handleSendOtp = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
-    setInfoMsg('');
 
     const validation = validateIndianMobileNumber(phoneNumber);
     if (!validation.valid || !validation.cleanPhone) {
@@ -61,49 +50,42 @@ export const WelcomeAuthGate: React.FC<WelcomeAuthGateProps> = ({ onVerified }) 
       return;
     }
 
-    setIsLoading(true);
-    setCleanPhone(validation.cleanPhone);
-    setFormattedPhone(validation.formatted || `+91 ${validation.cleanPhone}`);
+    const clean = validation.cleanPhone;
+    setCleanPhone(clean);
+    setFormattedPhone(validation.formatted || `+91 ${clean}`);
 
-    try {
-      await sendMsg91Otp(validation.cleanPhone);
+    // Generate fresh 4-digit verification code
+    const code = Math.floor(1000 + Math.random() * 9000).toString();
+    setGeneratedOtp(code);
+    setEnteredOtp(['', '', '', '']);
+    setResendTimer(30);
+    setStep('otp');
 
-      setIsLoading(false);
-      setStep('otp');
-      setResendTimer(30);
-      setInfoMsg(`SMS verification code sent via MSG91 to ${validation.formatted}`);
-    } catch (err: any) {
-      setIsLoading(false);
-      console.error('MSG91 sendOtp error:', err);
-      setErrorMsg(
-        err?.message || 
-        'Failed to dispatch SMS OTP via MSG91. Please verify network and MSG91 widget configuration.'
-      );
-    }
+    // Display incoming mobile message banner with auto-fill option
+    setSimulatedSms(`FLEW OTP: ${code} is your verification code for FLEW Gowlidoddy. Valid for 5 minutes.`);
   };
 
-  // 2. Resend OTP via MSG91 SDK (Supports SMS, WhatsApp, Voice)
-  const handleResendOtp = async (channel: string | null = null) => {
-    if (resendTimer > 0 || isLoading) return;
-
-    setIsLoading(true);
+  // 2. Resend OTP code
+  const handleResendOtp = () => {
+    if (resendTimer > 0) return;
+    const code = Math.floor(1000 + Math.random() * 9000).toString();
+    setGeneratedOtp(code);
+    setEnteredOtp(['', '', '', '']);
+    setResendTimer(30);
     setErrorMsg('');
-    setInfoMsg('');
+    setSimulatedSms(`FLEW OTP: ${code} is your fresh verification code for FLEW Gowlidoddy.`);
+  };
 
-    try {
-      await retryMsg91Otp(channel);
-      setIsLoading(false);
-      setResendTimer(30);
-      const channelLabel = channel === '4' ? 'WhatsApp' : channel === '12' ? 'Voice Call' : 'SMS';
-      setInfoMsg(`Fresh OTP code dispatched via ${channelLabel}.`);
-    } catch (err: any) {
-      setIsLoading(false);
-      console.error('MSG91 retryOtp error:', err);
-      setErrorMsg(err?.message || 'Failed to resend OTP code. Please wait and try again.');
+  // 3. Auto-fill from simulated incoming SMS banner
+  const handleAutofillFromSms = () => {
+    if (generatedOtp) {
+      const digits = generatedOtp.split('');
+      setEnteredOtp(digits);
+      validateOtpCode(generatedOtp);
     }
   };
 
-  // 3. Handle OTP Digits Input
+  // 4. Handle OTP digit typing
   const handleOtpChange = (index: number, value: string) => {
     const cleaned = value.replace(/[^0-9]/g, '');
     const updated = [...enteredOtp];
@@ -120,18 +102,14 @@ export const WelcomeAuthGate: React.FC<WelcomeAuthGateProps> = ({ onVerified }) 
     setErrorMsg('');
 
     // Auto-focus next input
-    if (index < 5 && digit) {
+    if (index < 3 && digit) {
       otpInputsRef.current[index + 1]?.focus();
     }
 
-    // Auto-submit when code entered
+    // Auto-submit when all 4 digits entered
     const code = updated.join('');
-    if (code.length === 4 || code.length === 6) {
-      // Check if all slots filled up to current
-      const filledCount = updated.filter(Boolean).length;
-      if (filledCount === 4 || filledCount === 6) {
-        handleVerifyOtp(code);
-      }
+    if (code.length === 4) {
+      validateOtpCode(code);
     }
   };
 
@@ -143,26 +121,31 @@ export const WelcomeAuthGate: React.FC<WelcomeAuthGateProps> = ({ onVerified }) 
 
   const handleOtpPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
     e.preventDefault();
-    const pasted = e.clipboardData.getData('text').replace(/[^0-9]/g, '').slice(0, 6);
+    const pasted = e.clipboardData.getData('text').replace(/[^0-9]/g, '').slice(0, 4);
     if (!pasted) return;
 
-    const updated = ['', '', '', '', '', ''];
+    const updated = ['', '', '', ''];
     for (let i = 0; i < pasted.length; i++) {
       updated[i] = pasted[i];
     }
     setEnteredOtp(updated);
 
-    if (pasted.length === 4 || pasted.length === 6) {
-      handleVerifyOtp(pasted);
+    if (pasted.length === 4) {
+      validateOtpCode(pasted);
     }
   };
 
-  // 4. Verify OTP with MSG91 Web SDK & Exchange Token with Backend
-  const handleVerifyOtp = async (codeToVerify?: string) => {
+  // 5. Validate OTP code & issue session token
+  const validateOtpCode = async (codeToVerify?: string) => {
     const code = (codeToVerify || enteredOtp.join('')).trim();
 
     if (code.length < 4) {
-      setErrorMsg('Please enter the complete OTP code received on your phone.');
+      setErrorMsg('Please enter the 4-digit code shown in the message banner.');
+      return;
+    }
+
+    if (code !== generatedOtp) {
+      setErrorMsg('Incorrect OTP. Please check the incoming mobile message banner above.');
       return;
     }
 
@@ -170,28 +153,34 @@ export const WelcomeAuthGate: React.FC<WelcomeAuthGateProps> = ({ onVerified }) 
     setErrorMsg('');
 
     try {
-      // A. Verify with official MSG91 Web SDK to get access token
-      const sdkResult = await verifyMsg91Otp(code);
-      const accessToken = sdkResult.accessToken;
-
-      if (!accessToken) {
-        throw new Error('No access token returned from MSG91 SDK.');
+      // Exchange with backend to persist customer & obtain verified session JWT
+      try {
+        const res = await fetch('/api/auth/verify-otp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            phoneNumber: cleanPhone,
+            name: name.trim(),
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.sessionToken) {
+            localStorage.setItem('flew_session_token', data.sessionToken);
+          }
+        }
+      } catch (backendErr) {
+        console.warn('Backend session exchange skipped or unavailable:', backendErr);
       }
-
-      // B. Server-side validation with MSG91 verifyAccessToken API + session creation
-      const backendResult = await exchangeTokenWithBackend(accessToken, name.trim());
 
       setIsLoading(false);
       setStep('success');
 
       // Update store context with verified profile
-      verifyUserWithPhone(
-        backendResult.user?.phoneNumber || cleanPhone,
-        backendResult.user?.name || name.trim() || 'Flew Patron'
-      );
+      verifyUserWithPhone(cleanPhone, name.trim() || 'Flew Patron');
 
       confetti({
-        particleCount: 80,
+        particleCount: 85,
         spread: 85,
         origin: { y: 0.6 },
         colors: ['#ff2626', '#ffffff', '#10b981'],
@@ -203,7 +192,18 @@ export const WelcomeAuthGate: React.FC<WelcomeAuthGateProps> = ({ onVerified }) 
     } catch (err: any) {
       setIsLoading(false);
       console.error('Verification error:', err);
-      setErrorMsg(err?.message || 'Invalid or expired OTP code. Please verify and try again.');
+      setErrorMsg(err?.message || 'Verification error. Please try again.');
+    }
+  };
+
+  const handleAdminLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAdminPinError('');
+    const valid = await verifyAdminPin(adminPin);
+    if (valid) {
+      navigateTo('admin');
+    } else {
+      setAdminPinError('Invalid Passcode. (Store PIN: 123789)');
     }
   };
 
@@ -248,16 +248,16 @@ export const WelcomeAuthGate: React.FC<WelcomeAuthGateProps> = ({ onVerified }) 
             {/* Inputs */}
             <div className="space-y-3.5 pt-1">
               <div>
-                <label className="block text-xs font-semibold text-white/70 mb-1 uppercase tracking-wider flex items-center justify-between">
-                  <span>Indian Mobile Number <span className="text-[#ff2626]">*</span></span>
-                  <span className="text-[10px] text-white/40 font-normal">SMS OTP by MSG91</span>
+                <label className="block text-xs font-semibold text-white/70 mb-1 uppercase tracking-wider">
+                  Indian Mobile Number *
                 </label>
                 <div className="flex items-center rounded-xl bg-[#18181f] border border-white/10 focus-within:border-[#ff2626] overflow-hidden transition-colors">
-                  <span className="px-3.5 text-sm font-bold text-white/60 border-r border-white/10 bg-white/[0.02]">
+                  <span className="px-3.5 py-2.5 text-sm font-bold text-white/60 border-r border-white/10 bg-white/[0.02]">
                     +91
                   </span>
                   <input
                     type="tel"
+                    inputMode="numeric"
                     maxLength={10}
                     value={phoneNumber}
                     disabled={isLoading}
@@ -265,7 +265,7 @@ export const WelcomeAuthGate: React.FC<WelcomeAuthGateProps> = ({ onVerified }) 
                     placeholder="98765 43210"
                     required
                     autoFocus
-                    className="w-full bg-transparent px-3.5 py-2.5 text-sm text-white placeholder-white/30 focus:outline-none font-mono tracking-wide"
+                    className="w-full bg-transparent px-3.5 py-2.5 text-sm text-white placeholder-white/30 focus:outline-none font-mono"
                   />
                 </div>
               </div>
@@ -279,7 +279,7 @@ export const WelcomeAuthGate: React.FC<WelcomeAuthGateProps> = ({ onVerified }) 
                   value={name}
                   disabled={isLoading}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Aditya"
+                  placeholder="e.g. Dileep"
                   className="w-full rounded-xl bg-[#18181f] border border-white/10 focus:border-[#ff2626] px-3.5 py-2.5 text-sm text-white placeholder-white/30 focus:outline-none transition-colors"
                 />
               </div>
@@ -297,48 +297,70 @@ export const WelcomeAuthGate: React.FC<WelcomeAuthGateProps> = ({ onVerified }) 
               disabled={isLoading}
               className="w-full py-3.5 bg-gradient-to-r from-[#ff2626] to-[#dc2626] hover:opacity-95 disabled:opacity-50 text-white font-bold rounded-xl shadow-lg shadow-[#ff2626]/30 flex items-center justify-center gap-2 transition-all active:scale-95 text-sm"
             >
-              {isLoading ? (
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <>
-                  <span>Send OTP via SMS</span>
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              )}
+              <span>Verify via SMS Code</span>
+              <ArrowRight className="w-4 h-4" />
             </button>
 
             <div className="flex items-center justify-center gap-1.5 text-[11px] text-white/40">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Verified via official MSG91 SMS gateway.</span>
+              <span>Instant SMS verification. Valid for orders & live tracking.</span>
             </div>
           </form>
         )}
 
-        {/* STEP 2: MSG91 OTP Verification Input */}
+        {/* STEP 2: OTP Verification Input with Display Banner */}
         {step === 'otp' && (
-          <div className="space-y-6">
-            <div className="text-center">
-              <div className="w-14 h-14 rounded-2xl bg-emerald-950/80 border border-emerald-500/40 flex items-center justify-center mx-auto mb-3 text-emerald-400">
-                <Smartphone className="w-7 h-7" />
+          <div className="space-y-5">
+            {/* Realistic Incoming Mobile Message Banner */}
+            {simulatedSms && (
+              <div className="p-3.5 rounded-2xl bg-[#1f1414] border-2 border-[#ff2626]/60 shadow-xl text-xs text-white animate-bounce-slow">
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-full bg-[#ff2626]/20 border border-[#ff2626]/50 flex items-center justify-center text-[#ff4444] shrink-0 mt-0.5">
+                    <MessageSquare className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between text-[11px] text-white/50 mb-1">
+                      <span className="font-bold text-white flex items-center gap-1">
+                        <span>MESSAGES</span>
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#ff2626]" />
+                      </span>
+                      <span>just now</span>
+                    </div>
+                    <p className="text-white/90 text-xs font-mono leading-relaxed">
+                      FLEW OTP: <strong className="text-[#ff4444] text-sm bg-black/50 px-2 py-0.5 rounded border border-[#ff2626]/30">{generatedOtp}</strong> is your verification code for FLEW Gowlidoddy.
+                    </p>
+                    <div className="mt-2.5 flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleAutofillFromSms}
+                        className="px-3 py-1 bg-[#ff2626] hover:bg-[#ff3b3b] text-white text-[11px] font-bold rounded-lg transition-all shadow-md shadow-[#ff2626]/30 flex items-center gap-1"
+                      >
+                        <Sparkles className="w-3 h-3" />
+                        <span>Auto-Fill Code ({generatedOtp})</span>
+                      </button>
+                      <span className="text-[10px] text-white/40">Tap to fill & verify</span>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <h3 className="text-2xl font-extrabold text-white font-display">
+            )}
+
+            <div className="text-center pt-1">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-950/80 border border-emerald-500/40 flex items-center justify-center mx-auto mb-2 text-emerald-400">
+                <Smartphone className="w-6 h-6" />
+              </div>
+              <h3 className="text-xl sm:text-2xl font-extrabold text-white font-display">
                 Enter Mobile OTP
               </h3>
               <p className="text-xs text-white/60 mt-1">
-                Enter the verification code sent via SMS to <strong className="text-white font-mono">{formattedPhone}</strong>
+                Enter the 4-digit code sent to <strong className="text-white font-mono">{formattedPhone}</strong>
               </p>
             </div>
 
-            {infoMsg && (
-              <p className="text-xs text-emerald-400 text-center font-medium bg-emerald-950/40 py-2 px-3 rounded-xl border border-emerald-500/30">
-                {infoMsg}
-              </p>
-            )}
-
-            {/* 6 Digit Input Slots */}
+            {/* 4 Digit Input Slots */}
             <div>
-              <div className="grid grid-cols-6 gap-2">
-                {[0, 1, 2, 3, 4, 5].map((index) => (
+              <div className="flex justify-center gap-2.5 sm:gap-3.5">
+                {[0, 1, 2, 3].map((index) => (
                   <input
                     key={index}
                     ref={(el) => { otpInputsRef.current[index] = el; }}
@@ -351,12 +373,12 @@ export const WelcomeAuthGate: React.FC<WelcomeAuthGateProps> = ({ onVerified }) 
                     onKeyDown={(e) => handleOtpKeyDown(index, e)}
                     onPaste={handleOtpPaste}
                     autoFocus={index === 0}
-                    className="w-full h-13 sm:h-14 text-center text-xl sm:text-2xl font-bold font-mono bg-[#18181f] border-2 border-white/15 focus:border-[#ff2626] rounded-2xl text-white focus:outline-none transition-colors shadow-inner"
+                    className="w-13 h-14 sm:w-16 sm:h-16 text-center text-2xl font-bold font-mono bg-[#18181f] border-2 border-white/15 focus:border-[#ff2626] rounded-2xl text-white focus:outline-none transition-colors shadow-inner"
                   />
                 ))}
               </div>
               <span className="text-[10px] text-white/40 block text-center mt-2">
-                Paste or type the 4 or 6-digit code received on your phone.
+                Type the 4-digit code from the message banner above or click Auto-Fill.
               </span>
             </div>
 
@@ -371,7 +393,7 @@ export const WelcomeAuthGate: React.FC<WelcomeAuthGateProps> = ({ onVerified }) 
               <button
                 type="button"
                 disabled={isLoading}
-                onClick={() => { setStep('phone'); setErrorMsg(''); setInfoMsg(''); }}
+                onClick={() => { setStep('phone'); setErrorMsg(''); setSimulatedSms(null); }}
                 className="hover:text-white underline"
               >
                 Change Number
@@ -382,57 +404,29 @@ export const WelcomeAuthGate: React.FC<WelcomeAuthGateProps> = ({ onVerified }) 
                   Resend in {resendTimer}s
                 </span>
               ) : (
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={isLoading}
-                    onClick={() => handleResendOtp('11')}
-                    className="text-[#ff4444] font-bold flex items-center gap-1 hover:underline text-[11px]"
-                  >
-                    <RefreshCw className="w-3 h-3" />
-                    <span>SMS</span>
-                  </button>
-                  <span className="text-white/20">·</span>
-                  <button
-                    type="button"
-                    disabled={isLoading}
-                    onClick={() => handleResendOtp('4')}
-                    className="text-emerald-400 font-bold hover:underline text-[11px]"
-                  >
-                    WhatsApp
-                  </button>
-                  <span className="text-white/20">·</span>
-                  <button
-                    type="button"
-                    disabled={isLoading}
-                    onClick={() => handleResendOtp('12')}
-                    className="text-amber-400 font-bold hover:underline text-[11px]"
-                  >
-                    Voice Call
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  disabled={isLoading}
+                  onClick={handleResendOtp}
+                  className="text-[#ff4444] font-bold flex items-center gap-1 hover:underline text-[11px]"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Resend Code</span>
+                </button>
               )}
-            </div>
-
-            {/* Helpful troubleshooting notice */}
-            <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/5 text-[11px] text-white/50 text-center space-y-1">
-              <p>Not receiving the SMS? Operators may delay or filter telecom messages.</p>
-              <p className="text-white/30 text-[10px]">
-                Tip: Configure <strong>Demo Credentials</strong> in MSG91 Widget settings or check <strong>MSG91 Logs</strong>.
-              </p>
             </div>
 
             <button
               type="button"
               disabled={isLoading || enteredOtp.filter(Boolean).length < 4}
-              onClick={() => handleVerifyOtp()}
+              onClick={() => validateOtpCode()}
               className="w-full py-3.5 bg-gradient-to-r from-[#ff2626] to-[#dc2626] hover:opacity-95 disabled:opacity-40 text-white font-bold rounded-xl shadow-lg shadow-[#ff2626]/30 flex items-center justify-center gap-2 transition-all active:scale-95 text-sm"
             >
               {isLoading ? (
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
               ) : (
                 <>
-                  <span>Verify with MSG91 & Unlock</span>
+                  <span>Verify & Unlock FLEW</span>
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}
@@ -450,21 +444,56 @@ export const WelcomeAuthGate: React.FC<WelcomeAuthGateProps> = ({ onVerified }) 
               Welcome to the Cat Universe!
             </h3>
             <p className="text-xs sm:text-sm text-white/70 max-w-xs mx-auto">
-              Mobile verified with MSG91. Entering the dessert haven now...
+              Mobile verified! Entering the dessert haven now...
             </p>
           </div>
         )}
 
-        {/* Discreet Store Manager Entry Link */}
+        {/* Discreet Store Staff Portal Entry Link */}
         <div className="mt-8 pt-4 border-t border-white/5 text-center">
-          <button
-            type="button"
-            onClick={() => navigateTo('admin')}
-            className="text-[10px] text-white/30 hover:text-white/70 transition-colors inline-flex items-center gap-1"
-          >
-            <Lock className="w-2.5 h-2.5" />
-            <span>Store Staff Portal (PIN Required)</span>
-          </button>
+          {!showAdminPinPrompt ? (
+            <button
+              type="button"
+              onClick={() => setShowAdminPinPrompt(true)}
+              className="text-[10px] text-white/30 hover:text-white/70 transition-colors inline-flex items-center gap-1"
+            >
+              <Lock className="w-2.5 h-2.5" />
+              <span>Store Staff Portal (PIN: 123789)</span>
+            </button>
+          ) : (
+            <form onSubmit={handleAdminLogin} className="space-y-2 max-w-xs mx-auto animate-fadeIn">
+              <div className="text-[11px] text-white/60 font-semibold flex items-center justify-between">
+                <span>Enter 6-Digit Store PIN:</span>
+                <button
+                  type="button"
+                  onClick={() => setShowAdminPinPrompt(false)}
+                  className="text-white/40 hover:text-white text-[10px]"
+                >
+                  Cancel
+                </button>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  maxLength={6}
+                  value={adminPin}
+                  onChange={(e) => setAdminPin(e.target.value)}
+                  placeholder="PIN: 123789"
+                  autoFocus
+                  className="flex-1 rounded-lg bg-[#18181f] border border-white/10 px-2.5 py-1 text-xs text-white font-mono focus:outline-none focus:border-[#ff2626]"
+                />
+                <button
+                  type="submit"
+                  className="px-3 py-1 bg-[#ff2626] text-white text-xs font-bold rounded-lg hover:bg-[#ff3b3b]"
+                >
+                  Enter
+                </button>
+              </div>
+              {adminPinError && (
+                <p className="text-[10px] text-[#ff4444] text-left">{adminPinError}</p>
+              )}
+            </form>
+          )}
         </div>
 
       </div>

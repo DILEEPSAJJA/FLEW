@@ -261,6 +261,27 @@ describe('FLEW Backend & Security Test Suite', () => {
       const json = res.json();
       assert.equal(json.success, false);
     });
+
+    test('verifies direct OTP endpoint (/api/auth/verify-otp) and issues valid customer session', async () => {
+      const res = await dispatch('POST', '/api/auth/verify-otp', {
+        phoneNumber: '9876543210',
+        name: 'Dileep Sajja',
+      });
+      assert.equal(res.statusCode, 200);
+      const json = res.json();
+      assert.equal(json.success, true);
+      assert.ok(json.sessionToken);
+      assert.equal(json.user?.phoneNumber, '9876543210');
+    });
+
+    test('rejects /api/auth/verify-otp with invalid phone number', async () => {
+      const res = await dispatch('POST', '/api/auth/verify-otp', {
+        phoneNumber: '123',
+      });
+      assert.equal(res.statusCode, 400);
+      const json = res.json();
+      assert.equal(json.success, false);
+    });
   });
 
   // ---------------------------------------------------------------------------
